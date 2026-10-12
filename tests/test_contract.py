@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from techdeals.ingestion.contract import IngestionStatus, RawCapture
 
 
@@ -121,3 +124,29 @@ def test_failure_record_creation() -> None:
     )
     assert rec.failure_mode == FailureMode.parse_failed
     assert rec.timestamp is not None
+
+
+def test_source_listing_id_must_be_non_empty() -> None:
+    with pytest.raises(ValidationError):
+        RawCapture(
+            source="ebay",
+            source_listing_id="",
+            url="https://ebay.com/itm/1",
+            fetched_at=datetime.now(timezone.utc),
+            checksum="a",
+            raw_payload="a",
+            payload_format="html",
+        )
+
+
+def test_url_must_be_non_empty() -> None:
+    with pytest.raises(ValidationError):
+        RawCapture(
+            source="ebay",
+            source_listing_id="1",
+            url="",
+            fetched_at=datetime.now(timezone.utc),
+            checksum="a",
+            raw_payload="a",
+            payload_format="html",
+        )

@@ -70,8 +70,8 @@ class RawCapture(BaseModel):
 
     id: UUID = Field(default_factory=_uuid7)
     source: str
-    source_listing_id: str
-    url: str
+    source_listing_id: str = Field(min_length=1)
+    url: str = Field(min_length=1)
     fetched_at: datetime
     checksum: str = Field(description="SHA-256 of the raw payload")
     raw_payload: str

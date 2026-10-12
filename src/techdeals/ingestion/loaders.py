@@ -4,6 +4,11 @@ Each loader reads real fixture files from the corpus and produces
 RawCapture objects ready for database insertion.
 
 The corpus is READ-ONLY. We never modify fixture files.
+
+These functions are the legacy loading path. They delegate to the
+adapter registry (``techdeals.adapters``) whenever a source has been
+migrated to a ``SourceAdapter`` subclass, and fall back to the original
+loader logic for sources that have not.
 """
 from __future__ import annotations
 
@@ -13,7 +18,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+from techdeals.adapters import base as adapter_base
+from techdeals.adapters.base import SourceAdapter
 from techdeals.ingestion.contract import RawCapture
+
+
+def _registered_adapter(source: str) -> SourceAdapter | None:
+    """Return the registered adapter for a source, or None if unmigrated."""
+    try:
+        return adapter_base.get_adapter(source)
+    except KeyError:
+        return None
 
 
 def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]:
@@ -22,6 +37,10 @@ def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]
     Yields RawCapture objects from all fixture locations.
     Stops gracefully if a source directory doesn't exist.
     """
+    registered = set(adapter_base.list_sources())
+
+    yield from adapter_base.load_all(max_per_source=max_per_source)
+
     loaders = [
         ("waterpanther", load_shopify_fixtures),
         ("serverpartdeals", load_shopify_fixtures),
@@ -33,6 +52,8 @@ def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]
     ]
 
     for source, loader_func in loaders:
+        if source in registered:
+            continue
         try:
             source_count = 0
             for capture in loader_func(source=source):
@@ -49,6 +70,11 @@ def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]
 
 def load_shopify_fixtures(source: str) -> Iterator[RawCapture]:
     """Load Shopify-style product JSON fixtures."""
+    adapter = _registered_adapter(source)
+    if adapter is not None:
+        yield from adapter.load_fixtures()
+        return
+
     base = Path(f"/home/coldaine/TechdealsHandoff/scripts/ingest/{source}/fixtures")
     if not base.exists():
         raise FileNotFoundError(f"Fixture directory not found: {base}")
@@ -67,13 +93,15 @@ def load_shopify_fixtures(source: str) -> Iterator[RawCapture]:
             if not isinstance(product, dict):
                 continue
 
-            product_id = str(product.get("id", json_file.stem))
+            product_id = str(product.get("id") or "") or json_file.stem
             raw_payload = json.dumps(product)
 
             yield RawCapture(
                 source=source,
                 source_listing_id=product_id,
-                url=product.get("url", product.get("handle", f"file://{json_file}")),
+                url=product.get("url")
+                or product.get("handle")
+                or f"file://{json_file}",
                 fetched_at=datetime.now(timezone.utc),
                 checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
                 raw_payload=raw_payload,
@@ -84,6 +112,11 @@ def load_shopify_fixtures(source: str) -> Iterator[RawCapture]:
 
 def load_govdeals_fixtures(source: str = "govdeals") -> Iterator[RawCapture]:
     """Load GovDeals JSON fixtures (asset + bidbox pairs)."""
+    adapter = _registered_adapter(source)
+    if adapter is not None:
+        yield from adapter.load_fixtures()
+        return
+
     base = Path("/home/coldaine/TechdealsHandoff/scripts/ingest/govdeals/fixtures")
     if not base.exists():
         raise FileNotFoundError(f"Fixture directory not found: {base}")
@@ -111,6 +144,11 @@ def load_govdeals_fixtures(source: str = "govdeals") -> Iterator[RawCapture]:
 
 def load_reddit_fixtures(source: str = "reddit_homelabsales") -> Iterator[RawCapture]:
     """Load Reddit Atom feed fixtures."""
+    adapter = _registered_adapter(source)
+    if adapter is not None:
+        yield from adapter.load_fixtures()
+        return
+
     base = Path("/home/coldaine/TechdealsHandoff/scripts/ingest/reddit_homelabsales/fixtures")
     if not base.exists():
         raise FileNotFoundError(f"Fixture directory not found: {base}")
@@ -140,10 +178,12 @@ def load_reddit_fixtures(source: str = "reddit_homelabsales") -> Iterator[RawCap
                 except ValueError:
                     pass
 
+            source_listing_id = entry_id or hashlib.sha256(entry_xml.encode()).hexdigest()[:12]
+
             yield RawCapture(
                 source=source,
-                source_listing_id=entry_id,
-                url=link,
+                source_listing_id=source_listing_id,
+                url=link or f"urn:techdeals:{source}:{source_listing_id}",
                 fetched_at=fetched_at,
                 checksum=hashlib.sha256(entry_xml.encode()).hexdigest(),
                 raw_payload=entry_xml,
@@ -154,6 +194,11 @@ def load_reddit_fixtures(source: str = "reddit_homelabsales") -> Iterator[RawCap
 
 def load_liquidation_fixtures(source: str = "liquidation_com") -> Iterator[RawCapture]:
     """Load Liquidation.com HTML fixtures (listing card, manifest, auction detail)."""
+    adapter = _registered_adapter(source)
+    if adapter is not None:
+        yield from adapter.load_fixtures()
+        return
+
     base = Path("/home/coldaine/TechdealsHandoff/scripts/ingest/liquidation_com/fixtures")
     if not base.exists():
         raise FileNotFoundError(f"Fixture directory not found: {base}")
@@ -187,6 +232,11 @@ def load_liquidation_fixtures(source: str = "liquidation_com") -> Iterator[RawCa
 
 def load_rackrat_fixtures(source: str = "rackrat") -> Iterator[RawCapture]:
     """Load RackRat snapshot fixtures (from big-racks)."""
+    adapter = _registered_adapter(source)
+    if adapter is not None:
+        yield from adapter.load_fixtures()
+        return
+
     # Try the full snapshot first, fall back to sample
     snapshot_path = Path("/home/coldaine/big-racks/web/public/data/snapshot.json")
     sample_path = Path("/home/coldaine/big-racks/pipeline/tests/fixtures/hits_sample.json")
@@ -205,13 +255,16 @@ def load_rackrat_fixtures(source: str = "rackrat") -> Iterator[RawCapture]:
         if not isinstance(listing, dict):
             continue
 
-        listing_id = str(listing.get("id", listing.get("ebay_item", "unknown")))
         raw_payload = json.dumps(listing)
+        listing_id = (
+            str(listing.get("id") or listing.get("ebay_item") or "")
+            or hashlib.sha256(raw_payload.encode()).hexdigest()[:12]
+        )
 
         yield RawCapture(
             source=source,
             source_listing_id=listing_id,
-            url=listing.get("url", ""),
+            url=listing.get("url") or f"urn:techdeals:{source}:{listing_id}",
             fetched_at=datetime.now(timezone.utc),
             checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
             raw_payload=raw_payload,
