@@ -15,6 +15,7 @@ Field mapping follows ``TechdealsHandoff/scripts/ingest/liquidation_com/``:
 """
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,9 @@ from bs4 import BeautifulSoup
 from techdeals.adapters.base import SourceAdapter, fallback_listing_id, register_adapter
 from techdeals.ingestion.contract import RawCapture
 
-LEGACY_FIXTURE_ROOT = Path("/home/coldaine/TechdealsHandoff/scripts/ingest")
+LEGACY_FIXTURE_ROOT = Path(
+    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
+)
 BASE_ORIGIN = "https://www.liquidation.com"
 
 AUCTION_LINK_RE = re.compile(r"auction/view\?id=(\d+)")
@@ -36,15 +39,6 @@ META_LINE_RE = re.compile(
     r"^\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*items?\s*$", re.I
 )
 COUNTS_RE = re.compile(r"(\d+)\s*bids?.*?(\d+)\s*watchers?.*?(\d+)\s*views?", re.I | re.S)
-MANIFEST_COLUMNS = (
-    "description",
-    "quantity",
-    "retail price",
-    "ext retail price",
-    "make",
-    "model",
-    "product category",
-)
 
 
 def _norm_space(text: str) -> str:

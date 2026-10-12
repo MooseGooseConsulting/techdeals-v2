@@ -17,6 +17,7 @@ native lot id is ``{accountId}-{assetId}`` and lot URLs are
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar, Iterator
@@ -26,7 +27,9 @@ from bs4 import BeautifulSoup
 from techdeals.adapters.base import SourceAdapter, register_adapter
 from techdeals.ingestion.contract import RawCapture
 
-LEGACY_FIXTURE_ROOT = Path("/home/coldaine/TechdealsHandoff/scripts/ingest")
+LEGACY_FIXTURE_ROOT = Path(
+    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
+)
 
 LOT_URL = "https://www.govdeals.com/en/asset/{asset_id}/{account_id}"
 
@@ -133,11 +136,6 @@ def _parse_time(value: Any) -> datetime | None:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
-
-
-def _iso(value: Any) -> str | None:
-    parsed = _parse_time(value)
-    return parsed.isoformat() if parsed is not None else None
 
 
 def _listing_status(code: Any, closes_at: datetime | None) -> str:

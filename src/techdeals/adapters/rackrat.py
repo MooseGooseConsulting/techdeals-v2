@@ -18,6 +18,7 @@ record id is preserved in metadata alongside the other extracted fields.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,11 +27,31 @@ from typing import Any, ClassVar, Iterator
 from techdeals.adapters.base import SourceAdapter, register_adapter
 from techdeals.ingestion.contract import RawCapture
 
-RACKRAT_FIXTURE_ROOT = Path("/home/coldaine/big-racks/pipeline/tests/fixtures")
+RACKRAT_FIXTURE_ROOT = Path(
+    os.environ.get("RACKRAT_FIXTURE_ROOT", "/home/coldaine/big-racks/pipeline/tests/fixtures")
+)
 
 _EBAY_ITEM = re.compile(r"v1\|(\d+)\|")
 
 _SNAPSHOT_MARKER_KEYS = ("ebayItemId", "valueMetrics", "canonicalCondition")
+
+_UNIX_SECONDS_MIN = 0
+_UNIX_SECONDS_MAX = 4102444800
+
+_EBAY_DOMAIN_BY_MARKETPLACE = {
+    "EBAY_US": "www.ebay.com",
+    "EBAY_UK": "www.ebay.co.uk",
+    "EBAY_GB": "www.ebay.co.uk",
+    "EBAY_AU": "www.ebay.com.au",
+    "EBAY_AT": "www.ebay.at",
+    "EBAY_DE": "www.ebay.de",
+    "EBAY_CA": "www.ebay.ca",
+    "EBAY_FR": "www.ebay.fr",
+    "EBAY_IT": "www.ebay.it",
+    "EBAY_ES": "www.ebay.es",
+    "EBAY_IE": "www.ebay.ie",
+    "EBAY_NL": "www.ebay.nl",
+}
 
 
 def _ebay_item_id(hit: dict[str, Any]) -> str | None:
@@ -43,8 +64,14 @@ def _iso_ts(value: Any) -> Any:
     if value is None or isinstance(value, str):
         return value
     try:
-        return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
-    except (TypeError, ValueError, OSError):
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return value
+    if not (_UNIX_SECONDS_MIN <= seconds <= _UNIX_SECONDS_MAX):
+        return value
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat()
+    except (OverflowError, TypeError, ValueError, OSError):
         return value
 
 
@@ -159,6 +186,16 @@ def _extract_records(data: Any) -> list:
     return []
 
 
+def _fallback_url(fields: dict[str, Any]) -> str:
+    """Best-effort listing URL when the record carries none."""
+    ebay_item_id = fields.get("ebay_item_id")
+    if ebay_item_id:
+        marketplace = str(fields.get("marketplace_id") or "").upper()
+        domain = _EBAY_DOMAIN_BY_MARKETPLACE.get(marketplace, "www.ebay.com")
+        return f"https://{domain}/itm/{ebay_item_id}"
+    return ""
+
+
 @register_adapter
 class RackRatAdapter(SourceAdapter):
     """Adapter for RackRat Meilisearch listing exports.
@@ -178,6 +215,7 @@ class RackRatAdapter(SourceAdapter):
         source_url: str = "",
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
+        max_items: int | None = None,
     ) -> Iterator[RawCapture]:
         payload = raw_data.decode("utf-8") if isinstance(raw_data, bytes) else raw_data
         data = json.loads(payload)
@@ -197,6 +235,9 @@ class RackRatAdapter(SourceAdapter):
                 metadata={**extra, "parse_error": "no_items_found"},
             )
             return
+
+        if max_items is not None:
+            records = records[: max(0, max_items)]
 
         for record in records:
             if not isinstance(record, dict):
@@ -221,7 +262,7 @@ class RackRatAdapter(SourceAdapter):
     ) -> RawCapture:
         fields = _record_fields(record)
         listing_id = str(fields.get("ebay_item_id") or record.get("id") or "")
-        url = record.get("url")
+        url = record.get("url") or _fallback_url(fields)
         return self._make_capture(
             source=self.source_name,
             source_listing_id=listing_id,
