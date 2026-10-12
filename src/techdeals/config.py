@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     kilo_gateway_api: str = ""
     kilo_code_api_key: str = ""
-    llm_model: str = "google/gemini-2.5-flash"
+    llm_model: str = "google/gemini-3.8-flash"
     llm_batch_size: int = 20
     log_level: str = "INFO"
 
