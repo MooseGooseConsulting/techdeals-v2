@@ -16,6 +16,13 @@ from techdeals.adapters.reddit import (
     RedditHardwareswapAdapter,
     RedditHomelabsalesAdapter,
 )
+from techdeals.adapters.rss_csv import (
+    AtlasGen5SsdAdapter,
+    GoogleShoppingAdapter,
+    SlickdealsAdapter,
+    SplPsuTierListAdapter,
+    SsdPricingRun1Adapter,
+)
 from techdeals.adapters.shopify import (
     FusionwwAdapter,
     ServerPartDealsAdapter,
@@ -24,7 +31,9 @@ from techdeals.adapters.shopify import (
 )
 
 __all__ = [
+    "AtlasGen5SsdAdapter",
     "FusionwwAdapter",
+    "GoogleShoppingAdapter",
     "GovDealsAdapter",
     "LiquidationComAdapter",
     "RackRatAdapter",
@@ -33,7 +42,10 @@ __all__ = [
     "RedditHomelabsalesAdapter",
     "ServerPartDealsAdapter",
     "ShopifyAdapter",
+    "SlickdealsAdapter",
     "SourceAdapter",
+    "SplPsuTierListAdapter",
+    "SsdPricingRun1Adapter",
     "WaterpantherAdapter",
     "get_adapter",
     "list_sources",
