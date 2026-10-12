@@ -10,6 +10,7 @@ import pytest
 from techdeals.adapters import base as adapter_base
 from techdeals.adapters import get_adapter, list_sources
 from techdeals.adapters.base import SourceAdapter, load_all
+from techdeals.adapters.rackrat import RackRatAdapter
 from techdeals.adapters.reddit import (
     RedditAtomAdapter,
     RedditHardwareswapAdapter,
@@ -683,3 +684,287 @@ def test_load_all_yields_failure_capture_instead_of_printing(
     assert "boom" in captures[0].metadata["parse_error"]
     assert captures[0].status == IngestionStatus.failed
     RawCapture.model_validate(captures[0].model_dump())
+
+
+RACKRAT_FIXTURE_ROOT = Path("/home/coldaine/big-racks/pipeline/tests/fixtures")
+
+SAMPLE_RACKRAT_HIT = {
+    "id": "v1_800743032157_0",
+    "ebay_item": "v1|800743032157|0",
+    "title": "HPE ProLiant DL360 Gen10 Plus, 2 x Gold 6342, 64GB RAM",
+    "price": 6648.0,
+    "shipping_cost": 0.0,
+    "total_cost": 6648.0,
+    "price_usd": 8733.03,
+    "shipping_cost_usd": 0.0,
+    "total_cost_usd": 8733.03,
+    "currency": "GBP",
+    "url": "https://www.ebay.co.uk/itm/800743032157",
+    "photo_url": "https://i.ebayimg.com/images/g/test/s-l225.jpg",
+    "condition": "Excellent - Refurbished",
+    "active": True,
+    "first_found": 1790862775,
+    "last_seen": 1791311652,
+    "ram_gb": 64,
+    "cpu_model": "Xeon Gold 6342",
+    "cpu_count": 2,
+    "brand": "HPE",
+    "model": "ProLiant DL360",
+    "form_factor": "Unknown",
+    "generation": "Gen10",
+    "bay_count": None,
+    "psu_count": 2,
+    "psu_watts": None,
+    "rails_included": None,
+    "storage_total_gb": 3276,
+    "ssd_total_gb": None,
+    "product_type": "SERVER",
+    "marketplace_id": "EBAY_GB",
+    "region": "Europe",
+    "country_name": "United Kingdom",
+    "location_country": "GB",
+    "requires_shipping_arrangement": False,
+}
+
+SAMPLE_RACKRAT_HIT_2 = {
+    "id": "v1_327366233574_0",
+    "ebay_item": "v1|327366233574|0",
+    "title": "Dell R7525 12-Bay SERVER w/ 2x AMD EPYC 7513",
+    "price": 7000.0,
+    "total_cost": 7000.0,
+    "price_usd": 4580.21,
+    "total_cost_usd": 4580.21,
+    "currency": "AUD",
+    "url": "https://www.ebay.com.au/itm/327366233574",
+    "condition": "Used",
+    "active": True,
+    "ram_gb": 128,
+    "cpu_model": "EPYC 7513",
+    "cpu_count": 2,
+    "brand": "Dell",
+    "model": "PowerEdge R7525",
+    "product_type": "SERVER",
+    "marketplace_id": "EBAY_AU",
+    "country_name": "Australia",
+}
+
+SAMPLE_RACKRAT_SNAPSHOT_LISTING = {
+    "id": "v1_294843480501_0",
+    "ebayItemId": 294843480501,
+    "title": "Cisco UCS B200 M4 Blade Server barebone chassis",
+    "brand": "Cisco",
+    "model": "UCS B200 M4",
+    "condition": "Gebraucht",
+    "canonicalCondition": "used",
+    "status": "active",
+    "url": "https://www.ebay.at/itm/294843480501",
+    "photoUrl": "https://i.ebayimg.com/images/g/test/s-l225.jpg",
+    "pricing": {"priceUsd": 71.1, "shippingUsd": 10.36, "totalUsd": 81.46, "currency": "EUR"},
+    "ram": {"capacityGb": 64, "type": "DDR4", "slotsTotal": 24},
+    "cpu": {
+        "model": "E5-2620 v3",
+        "count": 1,
+        "tier": 2,
+        "platformClasses": [],
+        "passmarkScore": 6000,
+    },
+    "storage": {
+        "includedGb": None,
+        "ssdGb": None,
+        "bayCount": 2,
+        "sffBays": 2,
+        "lffBays": None,
+        "driveBayTypes": [],
+    },
+    "psu": {"count": 2, "watts": 650},
+    "rackUnits": None,
+    "railsIncluded": False,
+    "formFactor": "blade",
+    "generation": None,
+    "marketplaceId": "EBAY_AT",
+    "region": "Europe",
+    "country": "Austria",
+    "firstFound": "2026-06-01T00:00:00+00:00",
+    "lastSeen": "2026-06-15T00:00:00+00:00",
+    "valueMetrics": {"usdPerGbRam": 1.27},
+    "valueScore": 42,
+}
+
+
+def test_rackrat_parses_raw_meilisearch_hits_array() -> None:
+    adapter = RackRatAdapter()
+    payload = json.dumps([SAMPLE_RACKRAT_HIT, SAMPLE_RACKRAT_HIT_2])
+    captures = list(
+        adapter.parse_raw(payload, source_url="fixture://hits_sample.json", fetched_at=FETCHED_AT)
+    )
+
+    assert len(captures) == 2
+    assert [c.source_listing_id for c in captures] == ["800743032157", "327366233574"]
+    first = captures[0]
+    assert first.source == "rackrat"
+    assert first.url == "https://www.ebay.co.uk/itm/800743032157"
+    assert first.payload_format == "json"
+    assert first.fetched_at == FETCHED_AT
+
+    meta = first.metadata
+    assert meta["format"] == "rackrat_meilisearch_hit"
+    assert meta["rackrat_id"] == "v1_800743032157_0"
+    assert meta["ebay_item"] == "v1|800743032157|0"
+    assert meta["ebay_item_id"] == "800743032157"
+    assert meta["title"] == "HPE ProLiant DL360 Gen10 Plus, 2 x Gold 6342, 64GB RAM"
+    assert meta["price"] == 6648.0
+    assert meta["total_cost"] == 6648.0
+    assert meta["total_cost_usd"] == 8733.03
+    assert meta["currency"] == "GBP"
+    assert meta["condition"] == "Excellent - Refurbished"
+    assert meta["ram_gb"] == 64
+    assert meta["cpu_model"] == "Xeon Gold 6342"
+    assert meta["cpu_count"] == 2
+    assert meta["product_type"] == "SERVER"
+    assert meta["country"] == "United Kingdom"
+    assert meta["first_found"] == datetime.fromtimestamp(1790862775, tz=timezone.utc).isoformat()
+    assert meta["last_seen"] == datetime.fromtimestamp(1791311652, tz=timezone.utc).isoformat()
+    assert meta["source_url"] == "fixture://hits_sample.json"
+
+
+def test_rackrat_capture_is_valid_raw_capture() -> None:
+    adapter = RackRatAdapter()
+    capture = next(adapter.parse_raw(json.dumps([SAMPLE_RACKRAT_HIT]), fetched_at=FETCHED_AT))
+
+    assert isinstance(capture, RawCapture)
+    assert capture.status == IngestionStatus.raw
+    assert capture.checksum == hashlib.sha256(capture.raw_payload.encode()).hexdigest()
+    expected_checksum = hashlib.sha256(json.dumps(SAMPLE_RACKRAT_HIT).encode()).hexdigest()
+    assert capture.checksum == expected_checksum
+    assert json.loads(capture.raw_payload) == SAMPLE_RACKRAT_HIT
+    RawCapture.model_validate(capture.model_dump())
+
+
+def test_rackrat_parses_snapshot_listings_envelope() -> None:
+    adapter = RackRatAdapter()
+    snapshot = {
+        "version": 1,
+        "generatedAt": "2026-10-12T00:00:00+00:00",
+        "source": "rackrat-meilisearch",
+        "count": 2,
+        "listings": [SAMPLE_RACKRAT_HIT, SAMPLE_RACKRAT_HIT_2],
+    }
+    captures = list(adapter.parse_raw(json.dumps(snapshot), fetched_at=FETCHED_AT))
+
+    assert [c.source_listing_id for c in captures] == ["800743032157", "327366233574"]
+    assert all(c.source == "rackrat" for c in captures)
+    assert captures[0].metadata["title"] == SAMPLE_RACKRAT_HIT["title"]
+    assert captures[1].metadata["title"] == SAMPLE_RACKRAT_HIT_2["title"]
+
+
+def test_rackrat_parses_normalized_snapshot_listing() -> None:
+    adapter = RackRatAdapter()
+    snapshot = {"version": 1, "count": 1, "listings": [SAMPLE_RACKRAT_SNAPSHOT_LISTING]}
+    capture = next(adapter.parse_raw(json.dumps(snapshot), fetched_at=FETCHED_AT))
+
+    assert capture.source_listing_id == "294843480501"
+    assert capture.url == "https://www.ebay.at/itm/294843480501"
+
+    meta = capture.metadata
+    assert meta["format"] == "rackrat_snapshot_listing"
+    assert meta["title"] == "Cisco UCS B200 M4 Blade Server barebone chassis"
+    assert meta["total_cost_usd"] == 81.46
+    assert meta["price_usd"] == 71.1
+    assert meta["currency"] == "EUR"
+    assert meta["ram_gb"] == 64
+    assert meta["cpu_model"] == "E5-2620 v3"
+    assert meta["cpu_count"] == 1
+    assert meta["condition"] == "Gebraucht"
+    assert meta["active"] is True
+    assert meta["first_found"] == "2026-06-01T00:00:00+00:00"
+
+
+def test_rackrat_meilisearch_search_response_hits_envelope() -> None:
+    adapter = RackRatAdapter()
+    payload = json.dumps({"hits": [SAMPLE_RACKRAT_HIT], "estimatedTotalHits": 1})
+    captures = list(adapter.parse_raw(payload, fetched_at=FETCHED_AT))
+
+    assert len(captures) == 1
+    assert captures[0].source_listing_id == "800743032157"
+
+
+def test_rackrat_hit_without_ebay_item_falls_back_to_record_id() -> None:
+    adapter = RackRatAdapter()
+    hit = {
+        "id": "v1_123456789012_0",
+        "title": "Supermicro 1U",
+        "url": "https://www.ebay.com/itm/123456789012",
+    }
+    capture = next(adapter.parse_raw(json.dumps([hit]), fetched_at=FETCHED_AT))
+
+    assert capture.source_listing_id == "v1_123456789012_0"
+    assert capture.metadata["ebay_item_id"] is None
+    assert capture.metadata["rackrat_id"] == "v1_123456789012_0"
+
+
+def test_rackrat_record_without_ids_gets_hash_and_urn_fallbacks() -> None:
+    adapter = RackRatAdapter()
+    capture = next(adapter.parse_raw(json.dumps({"title": "Mystery box"}), fetched_at=FETCHED_AT))
+
+    assert capture.source_listing_id
+    assert capture.url == f"urn:techdeals:rackrat:{capture.source_listing_id}"
+    RawCapture.model_validate(capture.model_dump())
+
+
+def test_rackrat_invalid_items_flagged_not_dropped() -> None:
+    adapter = RackRatAdapter()
+    payload = json.dumps([SAMPLE_RACKRAT_HIT, "garbage-string", 42])
+    captures = list(adapter.parse_raw(payload, fetched_at=FETCHED_AT))
+
+    assert len(captures) == 3
+    flagged = [c for c in captures if c.metadata.get("parse_error")]
+    assert len(flagged) == 2
+    assert all(c.metadata["parse_error"] == "invalid_item" for c in flagged)
+    assert flagged[0].raw_payload == "garbage-string"
+    assert flagged[1].raw_payload == "42"
+    for capture in flagged:
+        assert capture.source_listing_id
+        assert capture.url.startswith("urn:techdeals:rackrat:")
+        RawCapture.model_validate(capture.model_dump())
+
+    assert captures[0].source_listing_id == "800743032157"
+
+
+def test_rackrat_empty_listings_yields_no_items_found() -> None:
+    adapter = RackRatAdapter()
+    captures = list(adapter.parse_raw(json.dumps({"listings": []}), fetched_at=FETCHED_AT))
+
+    assert len(captures) == 1
+    capture = captures[0]
+    assert capture.metadata["parse_error"] == "no_items_found"
+    assert capture.raw_payload == '{"listings": []}'
+    RawCapture.model_validate(capture.model_dump())
+
+
+def test_registry_discovers_rackrat() -> None:
+    sources = list_sources()
+    assert "rackrat" in sources
+
+    adapter = get_adapter("rackrat")
+    assert isinstance(adapter, RackRatAdapter)
+    assert adapter.source_name == "rackrat"
+    assert adapter.fixture_path == RACKRAT_FIXTURE_ROOT
+
+
+def test_rackrat_load_fixtures_from_corpus() -> None:
+    fixture_file = RACKRAT_FIXTURE_ROOT / "hits_sample.json"
+    if not fixture_file.exists():
+        pytest.skip("RackRat fixture corpus not available")
+
+    expected = len(json.loads(fixture_file.read_text()))
+    adapter = RackRatAdapter()
+    captures = list(adapter.load_fixtures())
+
+    assert len(captures) == expected
+    assert captures[0].source_listing_id == "800743032157"
+    for capture in captures:
+        assert capture.source == "rackrat"
+        assert capture.payload_format == "json"
+        assert capture.source_listing_id
+        assert capture.metadata["fixture_file"].endswith("hits_sample.json")
+        RawCapture.model_validate(capture.model_dump())
