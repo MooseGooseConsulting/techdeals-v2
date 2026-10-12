@@ -37,31 +37,14 @@ from pathlib import Path
 from typing import Any, ClassVar, Iterator, Mapping
 
 from techdeals.adapters.base import (
+    LEGACY_FIXTURE_ROOT,
     SourceAdapter,
     fallback_listing_id,
     register_adapter,
 )
 from techdeals.ingestion.contract import IngestionStatus, RawCapture
 
-LEGACY_FIXTURE_ROOT = Path("/home/coldaine/TechdealsHandoff/scripts/ingest")
 LEGACY_RESEARCH_ROOT = Path("/home/coldaine/TechdealsHandoff/research")
-
-
-def _decode(raw_data: str | bytes) -> str:
-    return raw_data.decode("utf-8") if isinstance(raw_data, bytes) else raw_data
-
-
-class _SingleFixtureFileMixin:
-    """Allow ``fixture_path`` to point at one corpus file instead of a dir."""
-
-    def _iter_fixture_files(self) -> Iterator[Path]:
-        fixture_path = getattr(self, "fixture_path", None)
-        if fixture_path is None:
-            return
-        if fixture_path.is_file():
-            yield fixture_path
-            return
-        yield from super()._iter_fixture_files()  # type: ignore[misc]
 
 
 # --------------------------------------------------------------------------
@@ -170,35 +153,35 @@ class SlickdealsAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        payload = _decode(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        payload = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         try:
             root = ET.fromstring(payload)
         except ET.ParseError as exc:
-            yield self._make_capture(
+            yield self._error_capture(
+                error=f"invalid_rss_xml: {exc}",
+                raw_payload=payload,
+                payload_format="xml",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="xml",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": f"invalid_rss_xml: {exc}"},
             )
             return
 
         channel = root.find("channel")
         if channel is None:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="xml",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="xml",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
@@ -209,14 +192,15 @@ class SlickdealsAdapter(SourceAdapter):
             title = _child_text(item, "title")
             if not title:
                 yielded += 1
-                yield self._make_capture(
+                yield self._error_capture(
+                    error="missing_title",
+                    raw_payload=item_xml,
+                    payload_format="xml",
                     source=self.source_name,
                     source_listing_id="",
                     url="",
-                    raw_payload=item_xml,
-                    payload_format="xml",
+                    extra=extra,
                     fetched_at=fetched_at,
-                    metadata={**extra, "parse_error": "missing_title"},
                 )
                 continue
 
@@ -258,14 +242,15 @@ class SlickdealsAdapter(SourceAdapter):
             yield capture
 
         if not yielded:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="xml",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="xml",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
 
 
@@ -306,19 +291,6 @@ def _gs_clean(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _gs_parse_price(value: str | None) -> float | None:
-    text = _gs_clean(value)
-    if not text:
-        return None
-    number = re.sub(r"[^0-9.\-]", "", text)
-    if not number or number in {".", "-", "-."}:
-        return None
-    try:
-        return float(number)
-    except ValueError:
-        return None
 
 
 def _gs_detect_schema(fieldnames: list[str]) -> tuple[dict[str, str], str]:
@@ -457,7 +429,14 @@ class GoogleShoppingAdapter(SourceAdapter):
     """
 
     source_name: ClassVar[str] = "google_shopping"
-    fixture_path: ClassVar[Path | None] = None
+    # The legacy corpus ships no google_shopping fixtures (its data is manually
+    # maintained CSV exports), so fixture_path is wired to the fixtures
+    # directory only when one exists and stays None otherwise.
+    fixture_path: ClassVar[Path | None] = (
+        LEGACY_FIXTURE_ROOT / "google_shopping" / "fixtures"
+        if (LEGACY_FIXTURE_ROOT / "google_shopping" / "fixtures").is_dir()
+        else None
+    )
 
     def parse_raw(
         self,
@@ -466,37 +445,37 @@ class GoogleShoppingAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        payload = _decode(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        payload = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
         when = fetched_at or datetime.now(timezone.utc)
         observed_date = str(extra.get("observed_date") or when.date().isoformat())
 
         reader = csv.DictReader(io.StringIO(payload.lstrip("\ufeff")))
         if reader.fieldnames is None:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
         try:
             columns, schema_mode = _gs_detect_schema(reader.fieldnames)
         except ValueError as exc:
-            yield self._make_capture(
+            yield self._error_capture(
+                error=str(exc),
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": str(exc)},
             )
             return
 
@@ -528,7 +507,7 @@ class GoogleShoppingAdapter(SourceAdapter):
                     "source_row_number": row_index,
                     "observed_date": observed_date,
                     "product_name": product_name,
-                    "price": _gs_parse_price(cleaned.get(columns["price"])),
+                    "price": SourceAdapter._num(cleaned.get(columns["price"])),
                     "merchant": merchant,
                     "condition_notes": notes,
                     "condition_class": _gs_normalize_condition_class(notes),
@@ -546,14 +525,15 @@ class GoogleShoppingAdapter(SourceAdapter):
             yield capture
 
         if not yielded:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
 
 
@@ -744,7 +724,7 @@ def _spl_parse_visible_rows(
 
 
 @register_adapter
-class SplPsuTierListAdapter(_SingleFixtureFileMixin, SourceAdapter):
+class SplPsuTierListAdapter(SourceAdapter):
     """Adapter for the SPL PSU tier list all-sheets CSV.
 
     The tier rows are JUDGMENT data, never a market posting: each record is
@@ -770,22 +750,21 @@ class SplPsuTierListAdapter(_SingleFixtureFileMixin, SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        payload = _decode(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        payload = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         rows = list(csv.reader(io.StringIO(payload.lstrip("\ufeff"))))
         sheets = _spl_split_sheets(rows)
         if not sheets:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_sheets_found",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_sheets_found"},
             )
             return
 
@@ -820,31 +799,30 @@ class SplPsuTierListAdapter(_SingleFixtureFileMixin, SourceAdapter):
                 yield capture
             for bad in quarantine:
                 yielded += 1
-                yield self._make_capture(
-                    source=self.source_name,
-                    source_listing_id="",
-                    url="",
+                yield self._error_capture(
+                    error=bad["reason"],
                     raw_payload=json.dumps(bad, sort_keys=True),
                     payload_format="json",
-                    fetched_at=fetched_at,
-                    metadata={
+                    source=self.source_name,
+                    extra={
                         **extra,
                         "data_type": "judgment",
-                        "parse_error": bad["reason"],
                         "source_sheet": bad["source_sheet"],
                         "source_row_number": bad["source_row_number"],
                     },
+                    fetched_at=fetched_at,
                 )
 
         if not yielded:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
 
 
@@ -983,7 +961,7 @@ def _ssd_parse_row(row: Mapping[str, str | None], row_number: int) -> dict[str, 
 
 
 @register_adapter
-class SsdPricingRun1Adapter(_SingleFixtureFileMixin, SourceAdapter):
+class SsdPricingRun1Adapter(SourceAdapter):
     """Adapter for the SSD pricing research corpus Run-1 flat CSV.
 
     One capture per curated price observation row. Rows the strict Run-1
@@ -1004,26 +982,20 @@ class SsdPricingRun1Adapter(_SingleFixtureFileMixin, SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        payload = _decode(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        payload = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         reader = csv.DictReader(io.StringIO(payload.lstrip("\ufeff")))
         header = set(reader.fieldnames or ())
         missing = sorted(SSD_REQUIRED_COLUMNS - header)
         if missing:
-            yield self._make_capture(
-                source=self.source_name,
-                source_listing_id="",
-                url="",
+            yield self._error_capture(
+                error=f"missing_required_columns: {', '.join(missing)}",
                 raw_payload=payload,
                 payload_format="json",
+                source=self.source_name,
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={
-                    **extra,
-                    "parse_error": f"missing_required_columns: {', '.join(missing)}",
-                },
             )
             return
 
@@ -1034,14 +1006,15 @@ class SsdPricingRun1Adapter(_SingleFixtureFileMixin, SourceAdapter):
                 observation = _ssd_parse_row(row, row_number=row_number)
             except ValueError as exc:
                 yielded += 1
-                yield self._make_capture(
+                yield self._error_capture(
+                    error=str(exc),
+                    raw_payload=raw_payload,
+                    payload_format="json",
                     source=self.source_name,
                     source_listing_id="",
                     url="",
-                    raw_payload=raw_payload,
-                    payload_format="json",
+                    extra=extra,
                     fetched_at=fetched_at,
-                    metadata={**extra, "parse_error": str(exc)},
                 )
                 continue
             listing_id = fallback_listing_id(
@@ -1060,14 +1033,15 @@ class SsdPricingRun1Adapter(_SingleFixtureFileMixin, SourceAdapter):
             )
 
         if not yielded:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
 
 
@@ -1076,13 +1050,6 @@ class SsdPricingRun1Adapter(_SingleFixtureFileMixin, SourceAdapter):
 # --------------------------------------------------------------------------
 
 
-def _atlas_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _atlas_client_quotes(entry: Mapping[str, Any], product_id: str) -> list[dict[str, Any]]:
@@ -1090,8 +1057,8 @@ def _atlas_client_quotes(entry: Mapping[str, Any], product_id: str) -> list[dict
     for capacity_key, price in (entry.get("prices") or {}).items():
         if not isinstance(price, dict):
             continue
-        amount = _atlas_float(price.get("amount"))
-        capacity_tb = _atlas_float(capacity_key)
+        amount = SourceAdapter._num(price.get("amount"))
+        capacity_tb = SourceAdapter._num(capacity_key)
         if amount is None or capacity_tb is None:
             continue
         quotes.append(
@@ -1122,20 +1089,22 @@ def _atlas_product_fields(entry: Mapping[str, Any]) -> dict[str, Any]:
         "brand": entry.get("brand"),
         "name": entry.get("name"),
         "aliases": entry.get("aliases"),
-        "capacities": [c for c in (entry.get("capacities") or []) if _atlas_float(c) is not None],
+        "capacities": [
+            c for c in (entry.get("capacities") or []) if SourceAdapter._num(c) is not None
+        ],
         "form_factors": list(entry.get("formFactors") or []),
         "connector": entry.get("connector"),
         "interface": entry.get("interface"),
         "controller": entry.get("controller"),
         "nand": entry.get("nand"),
         "dram": entry.get("dram"),
-        "read_mbps": _atlas_float(entry.get("read")),
-        "write_mbps": _atlas_float(entry.get("write")),
-        "random_read_iops": _atlas_float(entry.get("randomRead")),
-        "random_write_iops": _atlas_float(entry.get("randomWrite")),
-        "mixed_70_30_iops": _atlas_float(entry.get("mixed7030")),
+        "read_mbps": SourceAdapter._num(entry.get("read")),
+        "write_mbps": SourceAdapter._num(entry.get("write")),
+        "random_read_iops": SourceAdapter._num(entry.get("randomRead")),
+        "random_write_iops": SourceAdapter._num(entry.get("randomWrite")),
+        "mixed_70_30_iops": SourceAdapter._num(entry.get("mixed7030")),
         "tbw_by_capacity": dict(entry.get("tbw") or {}),
-        "dwpd": _atlas_float(entry.get("dwpd")),
+        "dwpd": SourceAdapter._num(entry.get("dwpd")),
         "warranty_raw": entry.get("warranty"),
         "plp": entry.get("plp"),
         "hot_swap": entry.get("hotSwap"),
@@ -1144,8 +1113,8 @@ def _atlas_product_fields(entry: Mapping[str, Any]) -> dict[str, Any]:
         "telemetry": entry.get("telemetry"),
         "nvme_mi": entry.get("nvmeMi"),
         "ocp": entry.get("ocp"),
-        "active_power_w": _atlas_float(entry.get("activePowerW")),
-        "idle_power_w": _atlas_float(entry.get("idlePowerW")),
+        "active_power_w": SourceAdapter._num(entry.get("activePowerW")),
+        "idle_power_w": SourceAdapter._num(entry.get("idlePowerW")),
         "workload": entry.get("workload"),
         "client_quotes": _atlas_client_quotes(entry, product_id),
     }
@@ -1170,35 +1139,35 @@ class AtlasGen5SsdAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        payload = _decode(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        payload = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as exc:
-            yield self._make_capture(
+            yield self._error_capture(
+                error=f"invalid_json: {exc}",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": f"invalid_json: {exc}"},
             )
             return
 
         products = data.get("products") if isinstance(data, dict) else None
         if not isinstance(products, list) or not products:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
@@ -1208,14 +1177,15 @@ class AtlasGen5SsdAdapter(SourceAdapter):
             if not isinstance(entry, dict) or not entry.get("id"):
                 raw_text = entry if isinstance(entry, str) else json.dumps(entry)
                 yielded += 1
-                yield self._make_capture(
+                yield self._error_capture(
+                    error="invalid_item",
+                    raw_payload=raw_text,
+                    payload_format="json",
                     source=self.source_name,
                     source_listing_id="",
                     url="",
-                    raw_payload=raw_text,
-                    payload_format="json",
+                    extra=extra,
                     fetched_at=fetched_at,
-                    metadata={**extra, "parse_error": "invalid_item"},
                 )
                 continue
             fields = _atlas_product_fields(entry)
@@ -1231,12 +1201,13 @@ class AtlasGen5SsdAdapter(SourceAdapter):
             )
 
         if not yielded:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=payload,
+                payload_format="json",
                 source=self.source_name,
                 source_listing_id="",
                 url="",
-                raw_payload=payload,
-                payload_format="json",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )

@@ -11,21 +11,15 @@ stays in the extraction engine.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from pathlib import Path
 from typing import ClassVar, Iterator
 
-from techdeals.adapters.base import SourceAdapter, register_adapter
+from techdeals.adapters.base import LEGACY_FIXTURE_ROOT, SourceAdapter, register_adapter
 from techdeals.ingestion.contract import RawCapture
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
-
-LEGACY_FIXTURE_ROOT = Path(
-    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
-)
 
 _SALE_TAGS = {"FS", "WTS"}
 _WANT_TAGS = {"WTB", "W"}
@@ -210,20 +204,29 @@ class RedditAtomAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        root = ET.fromstring(raw_data)
-        seen: set[str] = set()
-        base_metadata = dict(metadata or {})
-        if source_url:
-            base_metadata.setdefault("source_url", source_url)
+        payload = self._decode(raw_data)
+        base_metadata = self._merge_extra(metadata, source_url)
+        try:
+            root = ET.fromstring(payload)
+        except ET.ParseError as exc:
+            yield self._error_capture(
+                error=f"invalid_atom_xml: {exc}",
+                raw_payload=payload,
+                payload_format="atom",
+                source=self.source_name,
+                extra=base_metadata,
+                fetched_at=fetched_at,
+            )
+            return
 
+        seen: set[str] = set()
         for index, entry in enumerate(_findall(root, "entry")):
             entry_xml = ET.tostring(entry, encoding="unicode")
             title = _child_text(entry, "title") or ""
             link = _entry_link(entry)
             raw_id = _child_text(entry, "id")
             post_id = _post_id(raw_id, link, entry_xml, index)
-            if post_id in seen:
-                continue
+            duplicate_of = post_id if post_id in seen else None
             seen.add(post_id)
 
             entry_metadata = {
@@ -239,6 +242,8 @@ class RedditAtomAdapter(SourceAdapter):
                 "location": location_code(title),
                 "shipping_hint": _shipping_hint(title),
             }
+            if duplicate_of is not None:
+                entry_metadata["duplicate_of"] = duplicate_of
             if not title:
                 entry_metadata["parse_error"] = "missing_title"
             if self.community == "hardwareswap":
@@ -256,14 +261,6 @@ class RedditAtomAdapter(SourceAdapter):
                 fetched_at=fetched_at,
                 metadata=entry_metadata,
             )
-
-    def _iter_fixture_files(self) -> Iterator[Path]:
-        if self.fixture_path is None:
-            return
-        if self.fixture_path.is_file():
-            yield self.fixture_path
-            return
-        yield from super()._iter_fixture_files()
 
 
 @register_adapter

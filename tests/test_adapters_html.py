@@ -577,8 +577,16 @@ def test_serverorbit_grid_items() -> None:
     adapter = ServerorbitAdapter()
     captures = list(adapter.parse_raw(SO_LISTING_PAGE, fetched_at=FETCHED_AT))
 
-    assert [c.source_listing_id for c in captures] == ["MZ-V9P1T0B/AM", "CD8069504283004"]
-    first = captures[0]
+    products = [c for c in captures if "parse_error" not in c.metadata]
+    errors = [c for c in captures if "parse_error" in c.metadata]
+
+    assert [c.source_listing_id for c in products] == ["MZ-V9P1T0B/AM", "CD8069504283004"]
+    assert len(errors) == 1
+    assert errors[0].metadata["parse_error"] == "missing_title"
+    assert "not a product" in errors[0].raw_payload
+    RawCapture.model_validate(errors[0].model_dump())
+
+    first = products[0]
     assert first.url == "https://serverorbit.com/samsung-ssd.html"
     meta = first.metadata
     assert meta["title"] == "Samsung PM9A1 1.92TB NVMe SSD"
@@ -590,13 +598,28 @@ def test_serverorbit_grid_items() -> None:
     assert meta["product_id"] == "product_101"
     assert meta["discount_text"] == "Extra 7% checkout discount applied automatically"
 
-    second = captures[1].metadata
+    second = products[1].metadata
     assert second["sku"] == "CD8069504283004"
     assert second["listed_price"] is None
     assert second["availability"] == "In Stock"
     assert second["condition_raw"] == "System Pull"
-    for capture in captures:
+    for capture in products:
         RawCapture.model_validate(capture.model_dump())
+
+
+def test_serverorbit_item_without_price_is_flagged_not_dropped() -> None:
+    adapter = ServerorbitAdapter()
+    html = """
+    <div class="ty-grid-list__item">
+      <a href="/x.html" class="product-title">Drive (ST16000NM001G)</a>
+    </div>
+    """
+    captures = list(adapter.parse_raw(html))
+
+    assert len(captures) == 1
+    assert captures[0].metadata["parse_error"] == "missing_price"
+    assert "Drive (ST16000NM001G)" in captures[0].raw_payload
+    RawCapture.model_validate(captures[0].model_dump())
 
 
 def test_serverorbit_sku_falls_back_to_title_parenthetical() -> None:
@@ -778,8 +801,9 @@ def test_bytes_payload_is_accepted() -> None:
     adapter = ServerorbitAdapter()
     captures = list(adapter.parse_raw(SO_LISTING_PAGE.encode("utf-8"), fetched_at=FETCHED_AT))
 
-    assert len(captures) == 2
-    assert captures[0].source_listing_id == "MZ-V9P1T0B/AM"
+    products = [c for c in captures if "parse_error" not in c.metadata]
+    assert len(products) == 2
+    assert products[0].source_listing_id == "MZ-V9P1T0B/AM"
 
 
 def test_source_url_and_metadata_passthrough() -> None:

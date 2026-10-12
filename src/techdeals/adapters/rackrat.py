@@ -203,11 +203,15 @@ class RackRatAdapter(SourceAdapter):
     Accepts bare hit arrays, ``{"listings": [...]}`` snapshots, and
     ``{"hits": [...]}`` search responses. One RawCapture is emitted per
     listing record; records that are not JSON objects are flagged with
-    ``metadata["parse_error"]`` instead of being dropped.
+    ``metadata["parse_error"]`` instead of being dropped. ``max_items`` bounds
+    the number of records parsed per payload.
     """
 
     source_name: ClassVar[str] = "rackrat"
     fixture_path: ClassVar[Path | None] = RACKRAT_FIXTURE_ROOT
+
+    def __init__(self, max_items: int | None = None) -> None:
+        self._max_items = max_items
 
     def parse_raw(
         self,
@@ -215,41 +219,36 @@ class RackRatAdapter(SourceAdapter):
         source_url: str = "",
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
-        max_items: int | None = None,
     ) -> Iterator[RawCapture]:
-        payload = raw_data.decode("utf-8") if isinstance(raw_data, bytes) else raw_data
+        payload = self._decode(raw_data)
         data = json.loads(payload)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        extra = self._merge_extra(metadata, source_url)
 
         records = _extract_records(data)
         if not records:
-            yield self._make_capture(
-                source=self.source_name,
-                source_listing_id="",
-                url="",
+            yield self._error_capture(
+                error="no_items_found",
                 raw_payload=payload,
                 payload_format="json",
+                source=self.source_name,
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
-        if max_items is not None:
-            records = records[: max(0, max_items)]
+        if self._max_items is not None:
+            records = records[: max(0, self._max_items)]
 
         for record in records:
             if not isinstance(record, dict):
                 raw_text = record if isinstance(record, str) else json.dumps(record)
-                yield self._make_capture(
-                    source=self.source_name,
-                    source_listing_id="",
-                    url="",
+                yield self._error_capture(
+                    error="invalid_item",
                     raw_payload=raw_text,
                     payload_format="json",
+                    source=self.source_name,
+                    extra=extra,
                     fetched_at=fetched_at,
-                    metadata={**extra, "parse_error": "invalid_item"},
                 )
                 continue
             yield self._capture_for_record(record, extra, fetched_at)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import os
 from datetime import datetime, timezone
@@ -307,7 +308,7 @@ def test_load_fixtures_from_corpus() -> None:
     if adapter.fixture_path is None or not adapter.fixture_path.exists():
         pytest.skip("legacy fixture corpus not available")
 
-    captures = list(adapter.load_fixtures(max_count=1))
+    captures = list(adapter.load_fixtures(max_files=1))
     assert len(captures) == 250
     for capture in captures:
         assert capture.source == "waterpanther"
@@ -483,14 +484,17 @@ def test_hardwareswap_hw_w_title_semantics() -> None:
     assert classify_listing_type("hardwareswap", hws_bundle) == "sale"
 
 
-def test_duplicate_atom_entry_is_parsed_once() -> None:
+def test_duplicate_atom_entry_is_flagged_not_dropped() -> None:
     adapter = RedditHardwareswapAdapter()
     duplicated = _atom_feed(HWS_SALE_ENTRY, HWS_WTB_ENTRY, HWS_TRADE_ENTRY, HWS_SALE_ENTRY)
     captures = list(adapter.parse_raw(duplicated, fetched_at=FETCHED_AT))
 
-    assert len(captures) == 3
+    assert len(captures) == 4
     ids = [c.source_listing_id for c in captures]
-    assert ids == ["t3_hwssale1", "t3_hwswtb1", "t3_hwstrade1"]
+    assert ids == ["t3_hwssale1", "t3_hwswtb1", "t3_hwstrade1", "t3_hwssale1"]
+    assert "duplicate_of" not in captures[0].metadata
+    assert captures[3].metadata["duplicate_of"] == "hwssale1"
+    assert captures[3].metadata["post_id"] == "hwssale1"
 
 
 def test_atom_namespace_is_handled_both_ways() -> None:
@@ -610,14 +614,23 @@ def test_reddit_load_fixtures_from_corpus() -> None:
 
     hws = RedditHardwareswapAdapter()
     hws_captures = list(hws.load_fixtures())
-    assert len(hws_captures) == 4
+    assert len(hws_captures) == 5
     assert [c.source_listing_id for c in hws_captures] == [
         "t3_hwssale1",
         "t3_hwswtb1",
         "t3_hwstrade1",
         "t3_hwsamb1",
+        "t3_hwssale1",
     ]
-    assert [c.metadata["listing_type"] for c in hws_captures] == ["sale", "want", "trade", "sale"]
+    assert [c.metadata["listing_type"] for c in hws_captures] == [
+        "sale",
+        "want",
+        "trade",
+        "sale",
+        "sale",
+    ]
+    assert "duplicate_of" not in hws_captures[0].metadata
+    assert hws_captures[4].metadata["duplicate_of"] == "hwssale1"
     for capture in hws_captures:
         assert capture.source == "reddit_hardwareswap"
         assert capture.metadata["fixture_file"].endswith("sample_hws_atom.xml")
@@ -677,7 +690,7 @@ def test_load_all_yields_failure_capture_instead_of_printing(
         def parse_raw(self, raw_data, source_url="", fetched_at=None, metadata=None):
             return iter(())
 
-        def load_fixtures(self, max_count=None):
+        def load_fixtures(self, max_files=None):
             raise RuntimeError("boom")
 
     monkeypatch.setitem(adapter_base._REGISTRY, "exploding_source", ExplodingAdapter)
@@ -923,12 +936,11 @@ def test_rackrat_missing_url_falls_back_to_ebay_item_url() -> None:
     assert capture.url == "https://www.ebay.co.uk/itm/800743032157"
 
 
-def test_rackrat_parse_raw_max_items_bounds_output() -> None:
-    adapter = RackRatAdapter()
+def test_rackrat_max_items_bounds_output() -> None:
     payload = json.dumps([SAMPLE_RACKRAT_HIT, SAMPLE_RACKRAT_HIT_2, SAMPLE_RACKRAT_HIT])
 
-    assert len(list(adapter.parse_raw(payload, max_items=2, fetched_at=FETCHED_AT))) == 2
-    assert len(list(adapter.parse_raw(payload, max_items=None, fetched_at=FETCHED_AT))) == 3
+    assert len(list(RackRatAdapter(max_items=2).parse_raw(payload, fetched_at=FETCHED_AT))) == 2
+    assert len(list(RackRatAdapter().parse_raw(payload, fetched_at=FETCHED_AT))) == 3
 
 
 def test_rackrat_out_of_range_timestamps_preserved() -> None:
@@ -1006,3 +1018,26 @@ def test_rackrat_load_fixtures_from_corpus() -> None:
         assert capture.source_listing_id
         assert capture.metadata["fixture_file"].endswith("hits_sample.json")
         RawCapture.model_validate(capture.model_dump())
+
+
+def test_registered_adapters_match_parse_raw_signature() -> None:
+    base_signature = inspect.signature(SourceAdapter.parse_raw)
+    assert set(base_signature.parameters) == {
+        "self",
+        "raw_data",
+        "source_url",
+        "fetched_at",
+        "metadata",
+    }
+
+    for source_name in list_sources():
+        adapter = get_adapter(source_name)
+        signature = inspect.signature(type(adapter).parse_raw)
+        assert signature == base_signature, (
+            f"{source_name}.parse_raw signature deviates from SourceAdapter.parse_raw: "
+            f"{signature} != {base_signature}"
+        )
+        assert set(inspect.signature(type(adapter).load_fixtures).parameters) == {
+            "self",
+            "max_files",
+        }, f"{source_name}.load_fixtures signature deviates from SourceAdapter.load_fixtures"
