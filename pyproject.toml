@@ -16,6 +16,7 @@ dependencies = [
     "httpx",
     "python-dotenv",
     "rich",
+    "beautifulsoup4>=4.15.0",
 ]
 
 [project.optional-dependencies]
