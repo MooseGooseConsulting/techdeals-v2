@@ -10,6 +10,7 @@ from techdeals.adapters.base import (
 )
 from techdeals.adapters.govdeals import GovDealsAdapter
 from techdeals.adapters.liquidation import LiquidationComAdapter
+from techdeals.adapters.rackrat import RackRatAdapter
 from techdeals.adapters.reddit import (
     RedditAtomAdapter,
     RedditHardwareswapAdapter,
@@ -26,6 +27,7 @@ __all__ = [
     "FusionwwAdapter",
     "GovDealsAdapter",
     "LiquidationComAdapter",
+    "RackRatAdapter",
     "RedditAtomAdapter",
     "RedditHardwareswapAdapter",
     "RedditHomelabsalesAdapter",
