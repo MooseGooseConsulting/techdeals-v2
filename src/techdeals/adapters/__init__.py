@@ -8,6 +8,7 @@ from techdeals.adapters.base import (
     load_all,
     register_adapter,
 )
+from techdeals.adapters.rackrat import RackRatAdapter
 from techdeals.adapters.reddit import (
     RedditAtomAdapter,
     RedditHardwareswapAdapter,
@@ -22,6 +23,7 @@ from techdeals.adapters.shopify import (
 
 __all__ = [
     "FusionwwAdapter",
+    "RackRatAdapter",
     "RedditAtomAdapter",
     "RedditHardwareswapAdapter",
     "RedditHomelabsalesAdapter",
