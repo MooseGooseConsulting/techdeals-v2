@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import ClassVar, Iterator
 
 from techdeals.adapters.base import LEGACY_FIXTURE_ROOT, SourceAdapter, register_adapter
-from techdeals.ingestion.contract import RawCapture
+from techdeals.ingestion.contract import IngestionStatus, RawCapture
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
 
@@ -193,9 +193,22 @@ def classify_listing_type(community: str, title: str) -> str:
 
 
 class RedditAtomAdapter(SourceAdapter):
-    """Shared Atom parsing for Reddit ``/new.rss`` feeds."""
+    """Shared Atom parsing for Reddit ``/new.rss`` feeds.
+
+    Entries are deduplicated by ``post_id`` (feeds can repeat an entry across
+    polls). ``on_duplicate`` controls what happens to later occurrences:
+
+    - ``"first_wins"`` (default): the first occurrence owns the canonical
+      ``source_listing_id``; later occurrences are emitted as quarantined
+      duplicate-marker captures with a ``#dup-N``-suffixed listing id and
+      ``metadata["duplicate_of"]`` pointing at the winning capture, so no two
+      captures ever share a listing id.
+    - ``"keep_all"``: every occurrence is emitted as a plain capture under its
+      raw listing id (duplicates only carry ``metadata["duplicate_of"]``).
+    """
 
     community: ClassVar[str] = "reddit"
+    on_duplicate: ClassVar[str] = "first_wins"
 
     def parse_raw(
         self,
@@ -219,15 +232,15 @@ class RedditAtomAdapter(SourceAdapter):
             )
             return
 
-        seen: set[str] = set()
+        seen: dict[str, str] = {}
+        duplicate_counts: dict[str, int] = {}
         for index, entry in enumerate(_findall(root, "entry")):
             entry_xml = ET.tostring(entry, encoding="unicode")
             title = _child_text(entry, "title") or ""
             link = _entry_link(entry)
             raw_id = _child_text(entry, "id")
             post_id = _post_id(raw_id, link, entry_xml, index)
-            duplicate_of = post_id if post_id in seen else None
-            seen.add(post_id)
+            listing_id = (raw_id or "").strip() or post_id
 
             entry_metadata = {
                 **base_metadata,
@@ -242,8 +255,17 @@ class RedditAtomAdapter(SourceAdapter):
                 "location": location_code(title),
                 "shipping_hint": _shipping_hint(title),
             }
-            if duplicate_of is not None:
-                entry_metadata["duplicate_of"] = duplicate_of
+
+            is_duplicate = post_id in seen
+            if is_duplicate:
+                entry_metadata["duplicate_of"] = seen[post_id]
+                entry_metadata["on_duplicate"] = self.on_duplicate
+                if self.on_duplicate != "keep_all":
+                    duplicate_counts[post_id] = duplicate_counts.get(post_id, 0) + 1
+                    listing_id = f"{listing_id}#dup-{duplicate_counts[post_id]}"
+            else:
+                seen[post_id] = listing_id
+
             if not title:
                 entry_metadata["parse_error"] = "missing_title"
             if self.community == "hardwareswap":
@@ -252,15 +274,18 @@ class RedditAtomAdapter(SourceAdapter):
                     entry_metadata["have"] = sides["have"]
                     entry_metadata["want"] = sides["want"]
 
-            yield self._make_capture(
+            capture = self._make_capture(
                 source=self.source_name,
-                source_listing_id=(raw_id or "").strip() or post_id,
+                source_listing_id=listing_id,
                 url=link,
                 raw_payload=entry_xml,
                 payload_format="atom",
                 fetched_at=fetched_at,
                 metadata=entry_metadata,
             )
+            if is_duplicate and self.on_duplicate != "keep_all":
+                capture.status = IngestionStatus.quarantined
+            yield capture
 
 
 @register_adapter
