@@ -8,6 +8,7 @@ normalized into the same parsed fields before becoming RawCapture objects.
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +20,9 @@ from techdeals.ingestion.contract import RawCapture
 
 CONDITION_PREFIXES = ("Refurbished:", "New:", "Used:", "Open Box:")
 
-LEGACY_FIXTURE_ROOT = Path("/home/coldaine/TechdealsHandoff/scripts/ingest")
+LEGACY_FIXTURE_ROOT = Path(
+    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
+)
 
 
 def _num(value: str | float | int | None) -> float | None:

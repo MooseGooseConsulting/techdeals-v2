@@ -11,6 +11,7 @@ stays in the extraction engine.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -22,7 +23,9 @@ from techdeals.ingestion.contract import RawCapture
 
 ATOM_NS = "http://www.w3.org/2005/Atom"
 
-LEGACY_FIXTURE_ROOT = Path("/home/coldaine/TechdealsHandoff/scripts/ingest")
+LEGACY_FIXTURE_ROOT = Path(
+    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
+)
 
 _SALE_TAGS = {"FS", "WTS"}
 _WANT_TAGS = {"WTB", "W"}

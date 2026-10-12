@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -316,7 +317,9 @@ def test_load_fixtures_from_corpus() -> None:
 
 
 
-REDDIT_FIXTURE_ROOT = Path("/home/coldaine/TechdealsHandoff/scripts/ingest/reddit_homelabsales")
+REDDIT_FIXTURE_ROOT = Path(
+    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
+) / "reddit_homelabsales"
 HLS_ATOM = REDDIT_FIXTURE_ROOT / "fixtures" / "sample_atom.xml"
 HWS_ATOM = REDDIT_FIXTURE_ROOT / "fixtures" / "sample_hws_atom.xml"
 
@@ -686,7 +689,9 @@ def test_load_all_yields_failure_capture_instead_of_printing(
     RawCapture.model_validate(captures[0].model_dump())
 
 
-RACKRAT_FIXTURE_ROOT = Path("/home/coldaine/big-racks/pipeline/tests/fixtures")
+RACKRAT_FIXTURE_ROOT = Path(
+    os.environ.get("RACKRAT_FIXTURE_ROOT", "/home/coldaine/big-racks/pipeline/tests/fixtures")
+)
 
 SAMPLE_RACKRAT_HIT = {
     "id": "v1_800743032157_0",
@@ -900,6 +905,39 @@ def test_rackrat_hit_without_ebay_item_falls_back_to_record_id() -> None:
     assert capture.source_listing_id == "v1_123456789012_0"
     assert capture.metadata["ebay_item_id"] is None
     assert capture.metadata["rackrat_id"] == "v1_123456789012_0"
+
+
+def test_rackrat_missing_url_falls_back_to_ebay_item_url() -> None:
+    adapter = RackRatAdapter()
+    snapshot_listing = {
+        key: value for key, value in SAMPLE_RACKRAT_SNAPSHOT_LISTING.items() if key != "url"
+    }
+    capture = next(
+        adapter.parse_raw(json.dumps({"listings": [snapshot_listing]}), fetched_at=FETCHED_AT)
+    )
+    assert capture.url == "https://www.ebay.at/itm/294843480501"
+
+    hit = dict(SAMPLE_RACKRAT_HIT)
+    hit.pop("url")
+    capture = next(adapter.parse_raw(json.dumps([hit]), fetched_at=FETCHED_AT))
+    assert capture.url == "https://www.ebay.co.uk/itm/800743032157"
+
+
+def test_rackrat_parse_raw_max_items_bounds_output() -> None:
+    adapter = RackRatAdapter()
+    payload = json.dumps([SAMPLE_RACKRAT_HIT, SAMPLE_RACKRAT_HIT_2, SAMPLE_RACKRAT_HIT])
+
+    assert len(list(adapter.parse_raw(payload, max_items=2, fetched_at=FETCHED_AT))) == 2
+    assert len(list(adapter.parse_raw(payload, max_items=None, fetched_at=FETCHED_AT))) == 3
+
+
+def test_rackrat_out_of_range_timestamps_preserved() -> None:
+    adapter = RackRatAdapter()
+    hit = {**SAMPLE_RACKRAT_HIT, "first_found": 1e30, "last_seen": 1e18}
+    capture = next(adapter.parse_raw(json.dumps([hit]), fetched_at=FETCHED_AT))
+
+    assert capture.metadata["first_found"] == 1e30
+    assert capture.metadata["last_seen"] == 1e18
 
 
 def test_rackrat_record_without_ids_gets_hash_and_urn_fallbacks() -> None:
