@@ -687,7 +687,10 @@ def _spl_parse_visible_rows(
         wattage_values, watt_min, watt_max = _spl_parse_wattages(wattages_raw)
         tier, tier_mod = _spl_parse_tier(tier_raw)
         row_id = row[18].strip() if has_row_id else ""
-        stable_key = row_id or _spl_stable_key(sheet_name, row[:18])
+        stable_key = row_id or _spl_stable_key(
+            sheet_name,
+            [brand, series, sub_series_1, sub_series_2, wattages_raw, tier_raw, *row[:18]],
+        )
         title = _spl_normalize_text(
             " ".join(
                 part
@@ -1034,10 +1037,19 @@ class SsdPricingRun1Adapter(SourceAdapter):
                     fetched_at=fetched_at,
                 )
                 continue
-            listing_id = fallback_listing_id(
-                observation["source_url"] or raw_payload,
-                prefix="ssd-url-" if observation["source_url"] else "ssd-row-",
-            )
+            if observation["source_url"]:
+                listing_id = fallback_listing_id(
+                    "\x1f".join(
+                        [
+                            observation["source_url"],
+                            observation["model_name"],
+                            observation["condition"] or "",
+                        ]
+                    ),
+                    prefix="ssd-url-",
+                )
+            else:
+                listing_id = fallback_listing_id(raw_payload, prefix="ssd-row-")
             yielded += 1
             yield self._make_capture(
                 source=self.source_name,

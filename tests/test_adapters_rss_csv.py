@@ -568,6 +568,48 @@ def test_spl_missing_row_id_falls_back_to_stable_key() -> None:
     assert capture.metadata["needs_manual_id"] is True
 
 
+def test_spl_stable_key_separates_inherited_identity_rows() -> None:
+    record_row = [
+        "",
+        "1200W",
+        "C+*",
+        "",
+        "ATX",
+        "ATX 3.x",
+        "100-240V",
+        "No",
+        "Gold",
+        "LLC",
+        "SR",
+        "DC-DC",
+        "OEM",
+        "PLAT",
+        "No OTP claimed, no performance or protections data",
+    ]
+    payload = _spl_csv(
+        {
+            SPL_FULL: [
+                ["Apevia", "Galaxy", "", "ATX 3.0"],
+                record_row,
+                ["Apevia", "Premier", "", "ATX 3.0"],
+                list(record_row),
+            ],
+        }
+    )
+    adapter = SplPsuTierListAdapter()
+    captures = [
+        c
+        for c in adapter.parse_raw(payload, fetched_at=FETCHED_AT)
+        if not c.metadata.get("parse_error")
+    ]
+
+    assert len(captures) == 2
+    assert captures[0].metadata["series"] == "Galaxy"
+    assert captures[1].metadata["series"] == "Premier"
+    assert captures[0].source_listing_id != captures[1].source_listing_id
+    assert captures[0].metadata["stable_key"] != captures[1].metadata["stable_key"]
+
+
 def test_spl_payload_without_sheet_markers_is_flagged() -> None:
     adapter = SplPsuTierListAdapter()
     captures = list(adapter.parse_raw("brand,tier\nCorsair,A\n", fetched_at=FETCHED_AT))
@@ -638,6 +680,25 @@ def test_ssd_pricing_row_becomes_capture() -> None:
     assert meta["source_name"] == "BestBuy SERP"
     assert meta["row_number"] == 2
     RawCapture.model_validate(capture.model_dump())
+
+
+def test_ssd_pricing_shared_url_gets_distinct_listing_ids() -> None:
+    def _row(model: str, condition: str) -> str:
+        return (
+            f"Crucial,{model},2000,PCIe 5.0,M.2 2280,TLC,14500,12400,1,Newegg,299.99,"
+            f",,,{condition},1,serp_result,Newegg SERP,2026-07-31T07:42:08Z,"
+            "https://www.newegg.com/crucial-2tb-t705-nvme/p/N82E16820156398,"
+            "https://www.newegg.com/crucial-2tb-t705-nvme/p/N82E16820156398"
+        )
+
+    payload = f"{SSD_HEADER}\n{_row('T500', 'new')}\n{_row('T705', 'new')}\n{_row('T705', 'used')}\n"
+    adapter = SsdPricingRun1Adapter()
+    captures = list(adapter.parse_raw(payload, fetched_at=FETCHED_AT))
+
+    ids = [c.source_listing_id for c in captures]
+    assert len(captures) == 3
+    assert all(i.startswith("ssd-url-") for i in ids)
+    assert len(ids) == len(set(ids))
 
 
 def test_ssd_pricing_missing_required_columns_is_flagged() -> None:

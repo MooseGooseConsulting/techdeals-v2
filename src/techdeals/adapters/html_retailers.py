@@ -567,7 +567,9 @@ class GoHarddriveAdapter(SourceAdapter):
                 }
                 yield self._make_capture(
                     source=self.source_name,
-                    source_listing_id=str(entry["sku"] or ""),
+                    source_listing_id=(
+                        f"{entry['sku']}:sitemap" if entry["sku"] else ""
+                    ),
                     url=entry["url"],
                     raw_payload=entry["raw"],
                     payload_format="xml",
@@ -593,7 +595,9 @@ class GoHarddriveAdapter(SourceAdapter):
 
         yield self._make_capture(
             source=self.source_name,
-            source_listing_id=str(fields.get("sku") or ""),
+            source_listing_id=(
+                f"{fields['sku']}:product" if fields.get("sku") else ""
+            ),
             url=url or str(fields.get("url") or ""),
             raw_payload=html,
             payload_format="html",

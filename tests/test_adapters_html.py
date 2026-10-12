@@ -348,7 +348,10 @@ def test_goharddrive_sitemap_yields_product_entries() -> None:
     adapter = GoHarddriveAdapter()
     captures = list(adapter.parse_raw(GHD_SITEMAP, fetched_at=FETCHED_AT))
 
-    assert [c.source_listing_id for c in captures] == ["G03-1391-WIN", "G01-1519-CR"]
+    assert [c.source_listing_id for c in captures] == [
+        "G03-1391-WIN:sitemap",
+        "G01-1519-CR:sitemap",
+    ]
     assert captures[0].url == "https://www.goHardDrive.com/Avolusion-250GB-p/g03-1391-win.htm"
     assert captures[0].payload_format == "xml"
     meta = captures[0].metadata
@@ -375,7 +378,7 @@ def test_goharddrive_product_page_fields() -> None:
 
     assert len(captures) == 1
     capture = captures[0]
-    assert capture.source_listing_id == "G01-1519-CR"
+    assert capture.source_listing_id == "G01-1519-CR:product"
     assert capture.url == url
     assert capture.payload_format == "html"
     meta = capture.metadata
@@ -387,6 +390,20 @@ def test_goharddrive_product_page_fields() -> None:
     assert meta["condition_raw"] == "Used"
     assert meta["availability"] == "InStock"
     RawCapture.model_validate(capture.model_dump())
+
+
+def test_goharddrive_record_kind_disambiguates_listing_ids() -> None:
+    adapter = GoHarddriveAdapter()
+    url = "https://www.goHardDrive.com/Seagate-Exos-p/g01-1519-cr.htm"
+    captures = list(adapter.parse_raw(GHD_SITEMAP, fetched_at=FETCHED_AT))
+    captures += list(
+        adapter.parse_raw(GHD_PRODUCT_PAGE, source_url=url, fetched_at=FETCHED_AT)
+    )
+
+    ids = [c.source_listing_id for c in captures]
+    assert "G01-1519-CR:sitemap" in ids
+    assert "G01-1519-CR:product" in ids
+    assert len(ids) == len(set(ids))
 
 
 def test_goharddrive_out_of_stock_fallback() -> None:
@@ -423,18 +440,25 @@ def test_goharddrive_load_fixtures_from_corpus() -> None:
 
     products = [c for c in captures if c.metadata["record_kind"] == "product"]
     entries = [c for c in captures if c.metadata["record_kind"] == "sitemap_entry"]
-    assert {c.source_listing_id for c in products} == {"G01-1519-CR", "G03-1391-WIN"}
-    assert {c.source_listing_id for c in entries} == {"G01-1519-CR", "G03-1391-WIN"}
+    assert {c.source_listing_id for c in products} == {
+        "G01-1519-CR:product",
+        "G03-1391-WIN:product",
+    }
+    assert {c.source_listing_id for c in entries} == {
+        "G01-1519-CR:sitemap",
+        "G03-1391-WIN:sitemap",
+    }
+    assert len({c.source_listing_id for c in captures}) == len(captures)
 
     by_id = {c.source_listing_id: c for c in products}
-    g01 = by_id["G01-1519-CR"]
+    g01 = by_id["G01-1519-CR:product"]
     assert g01.metadata["price"] == 399.95
     assert g01.metadata["manufacturer"] == "Seagate"
     assert g01.metadata["availability"] == "OutOfStock"
     assert g01.metadata["condition_raw"] == "SED"
     assert g01.metadata["title"].startswith("Seagate Exos X16 ST14000NM005G 14TB")
 
-    g03 = by_id["G03-1391-WIN"]
+    g03 = by_id["G03-1391-WIN:product"]
     assert g03.metadata["price"] == 29.99
     assert g03.metadata["availability"] == "InStock"
     assert g03.metadata["manufacturer"] == "Avolusion"
