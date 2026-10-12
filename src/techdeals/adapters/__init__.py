@@ -9,6 +9,14 @@ from techdeals.adapters.base import (
     register_adapter,
 )
 from techdeals.adapters.govdeals import GovDealsAdapter
+from techdeals.adapters.html_retailers import (
+    CentralComputersAdapter,
+    DisctechAdapter,
+    DiskpricesAdapter,
+    GoHarddriveAdapter,
+    ServerorbitAdapter,
+    ServerSupplyAdapter,
+)
 from techdeals.adapters.liquidation import LiquidationComAdapter
 from techdeals.adapters.rackrat import RackRatAdapter
 from techdeals.adapters.reddit import (
@@ -32,7 +40,11 @@ from techdeals.adapters.shopify import (
 
 __all__ = [
     "AtlasGen5SsdAdapter",
+    "CentralComputersAdapter",
+    "DisctechAdapter",
+    "DiskpricesAdapter",
     "FusionwwAdapter",
+    "GoHarddriveAdapter",
     "GoogleShoppingAdapter",
     "GovDealsAdapter",
     "LiquidationComAdapter",
@@ -41,6 +53,8 @@ __all__ = [
     "RedditHardwareswapAdapter",
     "RedditHomelabsalesAdapter",
     "ServerPartDealsAdapter",
+    "ServerSupplyAdapter",
+    "ServerorbitAdapter",
     "ShopifyAdapter",
     "SlickdealsAdapter",
     "SourceAdapter",
