@@ -27,7 +27,7 @@ def main() -> None:
     command = sys.argv[1]
 
     if command == "migrate":
-        from techdeals.db.migrations import run_migrations, reset_database
+        from techdeals.db.migrations import reset_database, run_migrations
         if "--reset" in sys.argv:
             confirm = input("This will DROP ALL TABLES. Type 'yes' to confirm: ")
             if confirm.lower() == "yes":
@@ -100,8 +100,22 @@ async def _run_ingest() -> None:
 
 async def _run_extract() -> None:
     """Run LLM extraction on raw captures."""
-    console.print("[yellow]Extraction not yet fully implemented.[/yellow]")
-    console.print("Will batch-extract from raw_captures via Instructor.")
+    from techdeals.extraction.pipeline import run_extraction
+
+    console.print("Running LLM extraction pipeline...")
+
+    result = run_extraction(limit=50)  # Start with 50 captures for testing
+
+    if result["status"] == "no_work":
+        console.print("[yellow]No unprocessed captures found.[/yellow]")
+        return
+
+    console.print("[green]Extraction complete![/green]")
+    console.print(f"  Captures processed: {result['captures']}")
+    console.print(f"  Postings created: {result.get('postings', 0)}")
+    console.print(f"  Lines created: {result.get('lines', 0)}")
+    console.print(f"  Sale groups: {result.get('sale_groups', 0)}")
+    console.print(f"  Observations: {result.get('observations', 0)}")
 
 
 def _run_query(name: str) -> None:
