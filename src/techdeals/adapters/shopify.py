@@ -8,44 +8,15 @@ normalized into the same parsed fields before becoming RawCapture objects.
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime
-from pathlib import Path
 from typing import Any, ClassVar, Iterator
 from urllib.parse import urljoin
 
-from techdeals.adapters.base import SourceAdapter, register_adapter
+from techdeals.adapters.base import LEGACY_FIXTURE_ROOT, SourceAdapter, register_adapter
 from techdeals.ingestion.contract import RawCapture
 
 CONDITION_PREFIXES = ("Refurbished:", "New:", "Used:", "Open Box:")
-
-LEGACY_FIXTURE_ROOT = Path(
-    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
-)
-
-
-def _num(value: str | float | int | None) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).strip()
-    if not text:
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
-def _int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _split_condition_title(raw: str) -> tuple[str | None, str]:
@@ -98,36 +69,34 @@ class ShopifyAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        payload = raw_data.decode("utf-8") if isinstance(raw_data, bytes) else raw_data
+        payload = self._decode(raw_data)
         data = json.loads(payload)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        extra = self._merge_extra(metadata, source_url)
 
         items = _extract_items(data)
         if not items:
-            yield self._make_capture(
-                source=self.source_name,
-                source_listing_id="",
-                url=self.base_url,
+            yield self._error_capture(
+                error="no_items_found",
                 raw_payload=payload,
                 payload_format="json",
+                source=self.source_name,
+                url=self.base_url,
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
         for item in items:
             if not isinstance(item, dict):
                 raw_text = item if isinstance(item, str) else json.dumps(item)
-                yield self._make_capture(
-                    source=self.source_name,
-                    source_listing_id="",
-                    url=self.base_url,
+                yield self._error_capture(
+                    error="invalid_item",
                     raw_payload=raw_text,
                     payload_format="json",
+                    source=self.source_name,
+                    url=self.base_url,
+                    extra=extra,
                     fetched_at=fetched_at,
-                    metadata={**extra, "parse_error": "invalid_item"},
                 )
                 continue
             if _is_fusion_item(item):
@@ -185,8 +154,7 @@ class ShopifyAdapter(SourceAdapter):
         }
         return product_id, url, fields
 
-    @staticmethod
-    def _shopify_variant_row(base_title: str, variant: dict[str, Any]) -> dict[str, Any]:
+    def _shopify_variant_row(self, base_title: str, variant: dict[str, Any]) -> dict[str, Any]:
         variant_id = str(variant.get("id") or "")
         sku = variant.get("sku") or None
         variant_title = (variant.get("title") or "").strip()
@@ -195,8 +163,8 @@ class ShopifyAdapter(SourceAdapter):
         else:
             full_title = base_title
         condition_raw, title = _split_condition_title(full_title)
-        price = _num(variant.get("price"))
-        listed = _num(variant.get("compare_at_price"))
+        price = self._num(variant.get("price"))
+        listed = self._num(variant.get("compare_at_price"))
         return {
             "variant_id": variant_id,
             "sku": str(sku) if sku else None,
@@ -225,10 +193,10 @@ class ShopifyAdapter(SourceAdapter):
         if not category and isinstance(item.get("taxonomy"), list):
             category = " > ".join(str(entry) for entry in item["taxonomy"])
 
-        price = _num(item.get("price") or item.get("unitPrice"))
-        listed = _num(item.get("listPrice") or item.get("msrp"))
-        quantity = _int(item.get("quantity") or item.get("totalAvailableQuantity"))
-        lead_time_days = _int(item.get("leadTimeDays"))
+        price = self._num(item.get("price") or item.get("unitPrice"))
+        listed = self._num(item.get("listPrice") or item.get("msrp"))
+        quantity = self._num(item.get("quantity") or item.get("totalAvailableQuantity"))
+        lead_time_days = self._num(item.get("leadTimeDays"))
         status = item.get("productStatus") or ("Active" if item.get("isActive") else "Inactive")
 
         attributes_raw = item.get("attributes")

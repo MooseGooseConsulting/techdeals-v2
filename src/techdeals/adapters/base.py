@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import ClassVar, Iterator
+from typing import Any, ClassVar, Iterator
 
 from techdeals.ingestion.contract import IngestionStatus, RawCapture
 
@@ -45,6 +46,11 @@ def fallback_listing_id(raw_payload: str, prefix: str = "") -> str:
     """Derive a stable non-empty listing ID from raw content."""
     digest = hashlib.sha256(raw_payload.encode()).hexdigest()[:12]
     return f"{prefix}{digest}" if prefix else digest
+
+
+LEGACY_FIXTURE_ROOT = Path(
+    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
+)
 
 
 class SourceAdapter(ABC):
@@ -80,22 +86,80 @@ class SourceAdapter(ABC):
         """
         ...
 
-    def load_fixtures(self, max_count: int | None = None) -> Iterator[RawCapture]:
-        """Load fixture files from the fixture directory.
+    @staticmethod
+    def _decode(raw_data: str | bytes) -> str:
+        """Decode raw data to string."""
+        if isinstance(raw_data, bytes):
+            return raw_data.decode("utf-8", errors="replace")
+        return raw_data
 
-        Reads all fixture files and feeds them through parse_raw(). A file
-        that cannot be read or parsed yields a failure capture carrying the
-        raw file content (``metadata["parse_error"]``) instead of aborting
-        the remaining files.
-        """
+    @staticmethod
+    def _merge_extra(metadata: dict | None, source_url: str = "") -> dict:
+        """Merge metadata and source_url into a standard extra dict."""
+        extra = dict(metadata or {})
+        if source_url:
+            extra.setdefault("source_url", source_url)
+        return extra
+
+    @staticmethod
+    def _error_capture(
+        error: str,
+        raw_payload: str,
+        payload_format: str,
+        source: str,
+        source_listing_id: str = "",
+        url: str = "",
+        extra: dict | None = None,
+        fetched_at: datetime | None = None,
+    ) -> RawCapture:
+        """Create a parse-error capture (nothing silently dropped)."""
+        meta = dict(extra or {})
+        meta["parse_error"] = error
+        return SourceAdapter._make_capture(
+            source=source,
+            source_listing_id=source_listing_id
+            or f"error-{hashlib.sha256(raw_payload.encode()).hexdigest()[:12]}",
+            url=url,
+            raw_payload=raw_payload,
+            payload_format=payload_format,
+            fetched_at=fetched_at,
+            metadata=meta,
+        )
+
+    @staticmethod
+    def _num(value: Any, default=None):
+        """Tolerant numeric coercion."""
+        if value is None or value == "":
+            return default
+        try:
+            if isinstance(value, (int, float)):
+                return value
+            s = str(value).replace(",", "").replace("$", "").strip()
+            return float(s) if "." in s else int(s)
+        except (ValueError, TypeError):
+            return default
+
+    def _require_fixture_path(self) -> Path:
+        """Return fixture_path or raise FileNotFoundError."""
         if self.fixture_path is None:
             raise FileNotFoundError(f"No fixture path configured for {self.source_name}")
         if not self.fixture_path.exists():
             raise FileNotFoundError(f"Fixture directory not found: {self.fixture_path}")
+        return self.fixture_path
+
+    def load_fixtures(self, max_files: int | None = None) -> Iterator[RawCapture]:
+        """Load fixture files from the fixture directory.
+
+        Reads up to ``max_files`` fixture files and feeds them through
+        parse_raw(). A file that cannot be read or parsed yields a failure
+        capture carrying the raw file content (``metadata["parse_error"]``)
+        instead of aborting the remaining files.
+        """
+        self._require_fixture_path()
 
         count = 0
         for fixture_file in sorted(self._iter_fixture_files()):
-            if max_count is not None and count >= max_count:
+            if max_files is not None and count >= max_files:
                 break
             yield from self._load_fixture_file(fixture_file)
             count += 1
@@ -153,10 +217,13 @@ class SourceAdapter(ABC):
         )
 
     def _iter_fixture_files(self) -> Iterator[Path]:
-        """Iterate fixture files. Override for custom file patterns."""
+        """Iterate fixture files. Handles both directories and single files."""
         if self.fixture_path is None:
             return
-        for pattern in ["*.json", "*.xml", "*.html", "*.csv"]:
+        if self.fixture_path.is_file():
+            yield self.fixture_path
+            return
+        for pattern in ["*.json", "*.xml", "*.html", "*.csv", "*.htm", "*.ssp"]:
             yield from sorted(self.fixture_path.glob(pattern))
 
     @staticmethod
@@ -223,7 +290,7 @@ def load_all(max_per_source: int | None = None) -> Iterator[RawCapture]:
     for source_name in list_sources():
         adapter = get_adapter(source_name)
         try:
-            yield from adapter.load_fixtures(max_count=max_per_source)
+            yield from adapter.load_fixtures(max_files=max_per_source)
         except FileNotFoundError:
             continue
         except Exception as exc:

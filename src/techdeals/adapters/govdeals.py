@@ -17,19 +17,14 @@ native lot id is ``{accountId}-{assetId}`` and lot URLs are
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, ClassVar, Iterator
 
 from bs4 import BeautifulSoup
 
-from techdeals.adapters.base import SourceAdapter, register_adapter
+from techdeals.adapters.base import LEGACY_FIXTURE_ROOT, SourceAdapter, register_adapter
 from techdeals.ingestion.contract import RawCapture
-
-LEGACY_FIXTURE_ROOT = Path(
-    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
-)
 
 LOT_URL = "https://www.govdeals.com/en/asset/{asset_id}/{account_id}"
 
@@ -88,24 +83,6 @@ def _html_text(value: Any) -> str | None:
     return BeautifulSoup(text, "html.parser").get_text("\n", strip=True) or None
 
 
-def _float(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _int(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def _currency_code(*payloads: dict[str, Any]) -> str | None:
     for payload in payloads:
         raw = payload.get("currencyCode") or payload.get("currency")
@@ -118,7 +95,7 @@ def _usd_bid(raw: Any, *currency_payloads: dict[str, Any]) -> float | None:
     currency = _currency_code(*currency_payloads)
     if currency is not None and currency != "USD":
         return None
-    return _float(raw)
+    return SourceAdapter._num(raw)
 
 
 def _parse_time(value: Any) -> datetime | None:
@@ -210,7 +187,9 @@ def _ship_mode(asset: dict[str, Any]) -> str | None:
 
 
 def _premium_pct(box: dict[str, Any], asset: dict[str, Any]) -> float | None:
-    return _float(box.get("premiumPercent")) or _float(asset.get("premiumPercent"))
+    return SourceAdapter._num(box.get("premiumPercent")) or SourceAdapter._num(
+        asset.get("premiumPercent")
+    )
 
 
 def _split_doc(doc: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
@@ -263,37 +242,33 @@ class GovDealsAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        payload = raw_data.decode("utf-8") if isinstance(raw_data, bytes) else raw_data
+        payload = self._decode(raw_data)
         data = json.loads(payload)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        extra = self._merge_extra(metadata, source_url)
 
         if isinstance(data, dict) and isinstance(data.get("assetSearchResults"), list):
             data = data["assetSearchResults"]
         if isinstance(data, list):
             if not data:
-                yield self._make_capture(
-                    source=self.source_name,
-                    source_listing_id="",
-                    url="",
+                yield self._error_capture(
+                    error="no_items_found",
                     raw_payload=payload,
                     payload_format="json",
+                    source=self.source_name,
+                    extra=extra,
                     fetched_at=fetched_at,
-                    metadata={**extra, "parse_error": "no_items_found"},
                 )
                 return
             for item in data:
                 if not isinstance(item, dict):
                     raw_text = item if isinstance(item, str) else json.dumps(item)
-                    yield self._make_capture(
-                        source=self.source_name,
-                        source_listing_id="",
-                        url="",
+                    yield self._error_capture(
+                        error="invalid_item",
                         raw_payload=raw_text,
                         payload_format="json",
+                        source=self.source_name,
+                        extra=extra,
                         fetched_at=fetched_at,
-                        metadata={**extra, "parse_error": "invalid_item"},
                     )
                     continue
                 asset, bidbox = _split_doc(item)
@@ -301,14 +276,13 @@ class GovDealsAdapter(SourceAdapter):
             return
 
         if not isinstance(data, dict):
-            yield self._make_capture(
-                source=self.source_name,
-                source_listing_id="",
-                url="",
+            yield self._error_capture(
+                error="no_items_found",
                 raw_payload=payload,
                 payload_format="json",
+                source=self.source_name,
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
@@ -327,14 +301,13 @@ class GovDealsAdapter(SourceAdapter):
         box = bidbox or {}
         account_id, asset_id = _lot_id_parts(asset, bidbox)
         if account_id is None or asset_id is None:
-            return self._make_capture(
-                source=self.source_name,
-                source_listing_id="",
-                url="",
+            return self._error_capture(
+                error="missing_ids",
                 raw_payload=raw_payload,
                 payload_format="json",
+                source=self.source_name,
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "missing_ids"},
             )
 
         listing_id = f"{account_id}-{asset_id}"
@@ -350,14 +323,14 @@ class GovDealsAdapter(SourceAdapter):
 
         fields: dict[str, Any] = {
             "native_lot_id": listing_id,
-            "asset_id": _int(asset_id),
-            "account_id": _int(account_id),
-            "auction_id": _int(src.get("auctionId") or box.get("auctionId")),
+            "asset_id": self._num(asset_id),
+            "account_id": self._num(account_id),
+            "auction_id": self._num(src.get("auctionId") or box.get("auctionId")),
             "status": status,
             "closes_at": closes.isoformat() if closes is not None else None,
             "current_bid": _usd_bid(bid_source.get("currentBid"), box, src),
-            "bid_count": _int(bid_source.get("bidCount")),
-            "watcher_count": _int(bid_source.get("watcherCount")),
+            "bid_count": self._num(bid_source.get("bidCount")),
+            "watcher_count": self._num(bid_source.get("watcherCount")),
             "buyers_premium_pct": _premium_pct(box, src),
             "reserve_met": reserve,
             "bidbox": box or None,
@@ -374,7 +347,7 @@ class GovDealsAdapter(SourceAdapter):
                     "title": _text(src.get("assetShortDesc") or src.get("assetShortDescription")),
                     "description_html": _text(src.get("assetLongDesc")),
                     "seller_name": _text(src.get("companyName")),
-                    "seller_type_id": _int(src.get("sellerTypeId")),
+                    "seller_type_id": self._num(src.get("sellerTypeId")),
                     "location": _location_line(city, state, postal),
                     "city": _text(city),
                     "state": _text(state),
@@ -398,15 +371,19 @@ class GovDealsAdapter(SourceAdapter):
             metadata={**extra, **fields},
         )
 
-    def load_fixtures(self, max_count: int | None = None) -> Iterator[RawCapture]:
-        """Load fixtures, pairing ``asset_*.json`` with ``bidbox_*.json`` by lot."""
-        if self.fixture_path is None:
-            raise FileNotFoundError(f"No fixture path configured for {self.source_name}")
-        if not self.fixture_path.exists():
-            raise FileNotFoundError(f"Fixture directory not found: {self.fixture_path}")
+    def load_fixtures(self, max_files: int | None = None) -> Iterator[RawCapture]:
+        """Load fixtures, pairing ``asset_*.json`` with ``bidbox_*.json`` by lot.
+
+        ``max_files`` caps the number of fixture files read.
+        """
+        self._require_fixture_path()
 
         groups: dict[str, dict[str, Any]] = {}
+        count = 0
         for fixture_file in sorted(self._iter_fixture_files()):
+            if max_files is not None and count >= max_files:
+                break
+            count += 1
             raw_data = ""
             fetched_at: datetime | None = None
             try:
@@ -436,10 +413,7 @@ class GovDealsAdapter(SourceAdapter):
             if fetched_at is not None:
                 group["at"].append(fetched_at)
 
-        count = 0
         for group in groups.values():
-            if max_count is not None and count >= max_count:
-                break
             combined = {
                 key: value
                 for key, value in (("asset", group["asset"]), ("bidbox", group["bidbox"]))
@@ -456,4 +430,3 @@ class GovDealsAdapter(SourceAdapter):
                     "fixture_files": [str(f) for f in files],
                 },
             )
-            count += 1

@@ -22,7 +22,6 @@ metadata carries ``parse_error`` instead of being dropped.
 from __future__ import annotations
 
 import json
-import os
 import re
 import warnings
 from datetime import datetime, timezone
@@ -32,32 +31,20 @@ from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
-from techdeals.adapters.base import SourceAdapter, fallback_listing_id, register_adapter
+from techdeals.adapters.base import (
+    LEGACY_FIXTURE_ROOT,
+    SourceAdapter,
+    fallback_listing_id,
+    register_adapter,
+)
 from techdeals.ingestion.contract import RawCapture
 
-LEGACY_FIXTURE_ROOT = Path(
-    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
-)
-
 ParseRow = tuple[dict[str, Any], str, str]
-
-
-def _payload_text(raw_data: str | bytes) -> str:
-    return raw_data.decode("utf-8") if isinstance(raw_data, bytes) else raw_data
 
 
 # --- central_computers ------------------------------------------------------
 
 CC_BASE_URL = "https://www.centralcomputer.com"
-
-
-def _cc_num(value: str | float | int | None) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    m = re.sub(r"[^0-9.]", "", str(value))
-    return float(m) if m else None
 
 
 def _cc_availability_label(raw: str | None) -> str | None:
@@ -79,7 +66,7 @@ def _cc_was_prices_by_url(soup: BeautifulSoup) -> dict[str, float]:
         if not link or not old:
             continue
         url = urljoin(CC_BASE_URL, link.get("href") or "").rstrip("/")
-        val = _cc_num(old.get("data-price-amount") or old.get_text())
+        val = SourceAdapter._num(old.get("data-price-amount") or old.get_text())
         if val is not None:
             prices[url] = val
     return prices
@@ -112,7 +99,7 @@ def _cc_parse_jsonld(soup: BeautifulSoup, was_prices: dict[str, float]) -> list[
                 "product_id": product_id,
                 "sku": str(sku) if sku else None,
                 "title": (element.get("name") or "").strip(),
-                "price": _cc_num(offers.get("price")),
+                "price": SourceAdapter._num(offers.get("price")),
                 "listed_price": was_prices.get(url),
                 "url": url,
                 "availability": _cc_availability_label(offers.get("availability")),
@@ -149,8 +136,8 @@ def _cc_parse_css(soup: BeautifulSoup) -> list[ParseRow]:
             "product_id": str(pid),
             "sku": None,
             "title": title,
-            "price": _cc_num(price_el.get("data-price-amount") if price_el else None),
-            "listed_price": _cc_num(old_el.get("data-price-amount") if old_el else None),
+            "price": SourceAdapter._num(price_el.get("data-price-amount") if price_el else None),
+            "listed_price": SourceAdapter._num(old_el.get("data-price-amount") if old_el else None),
             "url": url,
             "availability": None,
             "manufacturer": None,
@@ -187,21 +174,20 @@ class CentralComputersAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        html = _payload_text(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        html = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         rows = _cc_parse_listing_page(html)
         if not rows:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="product-"),
                 url=CC_BASE_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
@@ -247,17 +233,6 @@ _DP_COL_FALLBACK: dict[str, int] = {
 
 _DP_REQUIRED_HEADERS = (_DP_HDR_PRICE_PER_TB, _DP_HDR_PRICE, _DP_HDR_CAPACITY)
 
-
-def _dp_num(s: str | None) -> float | None:
-    if not s:
-        return None
-    m = re.sub(r"[^0-9.\-]", "", s)
-    if not m or m in {".", "-", "-."}:
-        return None
-    try:
-        return float(m)
-    except ValueError:
-        return None
 
 
 def _dp_parse_capacity(cap_raw: str) -> tuple[float | None, int, float | None]:
@@ -340,8 +315,8 @@ def _dp_parse_row(cells: list[Any], col_map: dict[str, int]) -> tuple[dict[str, 
     tb, packs, total_tb = _dp_parse_capacity(cap_raw)
 
     fields = {
-        "price_per_tb": _dp_num(cell(price_per_tb_i)),
-        "price": _dp_num(cell(price_i)),
+        "price_per_tb": SourceAdapter._num(cell(price_per_tb_i)),
+        "price": SourceAdapter._num(cell(price_i)),
         "capacity_raw": cap_raw,
         "tb_per_drive": tb,
         "pack_count": packs,
@@ -392,34 +367,34 @@ class DiskpricesAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        html = _payload_text(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        html = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         try:
             rows = _dp_parse_html(html)
         except ValueError as exc:
-            yield self._make_capture(
+            yield self._error_capture(
+                error=str(exc),
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="disk-"),
                 url=DP_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": str(exc)},
             )
             return
 
         if not rows:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="disk-"),
                 url=DP_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
@@ -456,17 +431,6 @@ def _ghd_sku_from_url(url: str) -> str | None:
     code = code[: -len(".htm")]
     return code.upper() or None
 
-
-def _ghd_num(value: str | None) -> float | None:
-    if not value:
-        return None
-    text = str(value).strip().replace(",", "")
-    if not text:
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
 
 
 def _ghd_availability(soup: BeautifulSoup) -> str | None:
@@ -523,7 +487,7 @@ def _ghd_parse_product_page(payload: str, *, url: str) -> dict[str, Any] | None:
         return None
 
     price_node = soup.find("span", attrs={"itemprop": "price"})
-    price = _ghd_num(str(price_node.get("content", "")) if price_node else None)
+    price = SourceAdapter._num(str(price_node.get("content", "")) if price_node else None)
 
     manufacturer_node = soup.find("meta", attrs={"itemprop": "manufacturer"})
     manufacturer = (
@@ -566,8 +530,9 @@ class GoHarddriveAdapter(SourceAdapter):
     def _iter_fixture_files(self) -> Iterator[Path]:
         if self.fixture_path is None:
             return
-        for pattern in ["*.json", "*.xml", "products/*.html", "*.html", "*.csv"]:
-            yield from sorted(self.fixture_path.glob(pattern))
+        yield from super()._iter_fixture_files()
+        if self.fixture_path.is_dir():
+            yield from sorted(self.fixture_path.glob("products/*.html"))
 
     def parse_raw(
         self,
@@ -576,22 +541,21 @@ class GoHarddriveAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        html = _payload_text(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        html = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         if _ghd_is_sitemap(html):
             entries = _ghd_sitemap_entries(html)
             if not entries:
-                yield self._make_capture(
+                yield self._error_capture(
+                    error="no_items_found",
+                    raw_payload=html,
+                    payload_format="xml",
                     source=self.source_name,
                     source_listing_id=fallback_listing_id(html, prefix="sitemap-"),
                     url=source_url or f"{GHD_BASE_URL}/sitemap.xml",
-                    raw_payload=html,
-                    payload_format="xml",
+                    extra=extra,
                     fetched_at=fetched_at,
-                    metadata={**extra, "parse_error": "no_items_found"},
                 )
                 return
             for entry in entries:
@@ -615,14 +579,15 @@ class GoHarddriveAdapter(SourceAdapter):
         url = source_url or ""
         fields = _ghd_parse_product_page(html, url=url)
         if fields is None:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_product_name",
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="product-"),
                 url=url,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_product_name"},
             )
             return
 
@@ -636,17 +601,14 @@ class GoHarddriveAdapter(SourceAdapter):
             metadata={**extra, "record_kind": "product", **fields},
         )
 
-    def load_fixtures(self, max_count: int | None = None) -> Iterator[RawCapture]:
+    def load_fixtures(self, max_files: int | None = None) -> Iterator[RawCapture]:
         """Load fixtures, resolving each product page's URL via the sitemap.
 
         Fixture product files carry no live URL, so their product URL (and
         therefore SKU) comes from the sitemap entries — the same entrypoint the
-        old crawl used.
+        old crawl used. ``max_files`` caps the number of fixture files read.
         """
-        if self.fixture_path is None:
-            raise FileNotFoundError(f"No fixture path configured for {self.source_name}")
-        if not self.fixture_path.exists():
-            raise FileNotFoundError(f"Fixture directory not found: {self.fixture_path}")
+        self._require_fixture_path()
 
         url_by_sku: dict[str, str] = {}
         sitemap_file = self.fixture_path / "sitemap.xml"
@@ -657,7 +619,7 @@ class GoHarddriveAdapter(SourceAdapter):
 
         count = 0
         for fixture_file in sorted(self._iter_fixture_files()):
-            if max_count is not None and count >= max_count:
+            if max_files is not None and count >= max_files:
                 break
             fetched_at: datetime | None = None
             raw_data = ""
@@ -690,12 +652,6 @@ class GoHarddriveAdapter(SourceAdapter):
 SS_BASE_URL = "https://www.serversupply.com"
 SS_CONDITION_PREFIXES = ("New", "Refurbished", "OEM", "Spare")
 
-
-def _ss_num(text: str | None) -> float | None:
-    if not text:
-        return None
-    m = re.sub(r"[^0-9.]", "", text)
-    return float(m) if m else None
 
 
 def _ss_product_id_from_url(url: str) -> str:
@@ -737,9 +693,9 @@ def _ss_parse_listing_page(html: str, *, category_path: str | None = None) -> li
         if price_el:
             was = price_el.select_one(".wpcost")
             if was:
-                listed = _ss_num(was.get_text())
+                listed = SourceAdapter._num(was.get_text())
             full = price_el.get_text(" ", strip=True)
-            current = _ss_num(full.replace(was.get_text(), "") if was else full)
+            current = SourceAdapter._num(full.replace(was.get_text(), "") if was else full)
         fields = {
             "product_id": _ss_product_id_from_url(url),
             "title": title,
@@ -774,21 +730,20 @@ class ServerSupplyAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        html = _payload_text(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        html = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         rows = _ss_parse_listing_page(html, category_path=extra.get("category_path"))
         if not rows:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="product-"),
                 url=SS_BASE_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
@@ -809,17 +764,6 @@ class ServerSupplyAdapter(SourceAdapter):
 SO_BASE_URL = "https://serverorbit.com/"
 
 
-def _so_parse_price(text: str | None) -> float | None:
-    if not text:
-        return None
-    match = re.search(r"\$?\s*([0-9,]+(?:\.[0-9]{2})?)", text)
-    if not match:
-        return None
-    try:
-        return float(match.group(1).replace(",", ""))
-    except ValueError:
-        return None
-
 
 def _so_labeled_field(item: Any, keywords: tuple[str, ...]) -> str | None:
     el = item.find(lambda tag: tag.name == "span" and any(k in tag.text for k in keywords))
@@ -837,6 +781,12 @@ def _so_labeled_field(item: Any, keywords: tuple[str, ...]) -> str | None:
 
 
 def _so_parse_html(html: str) -> list[ParseRow]:
+    """Parse grid cards into rows.
+
+    A card that cannot be parsed becomes a row whose fields carry
+    ``parse_error`` (``missing_title``/``missing_price``) instead of being
+    silently skipped.
+    """
     soup = BeautifulSoup(html, "html.parser")
     rows: list[ParseRow] = []
 
@@ -855,6 +805,7 @@ def _so_parse_html(html: str) -> list[ParseRow]:
 
         title_el = item.select_one(".product-title, .ty-grid-list__item-name a, a.product-title")
         if not title_el:
+            rows.append(({"parse_error": "missing_title"}, str(item), "html"))
             continue
         title = title_el.get_text(strip=True)
         url = title_el.get("href")
@@ -867,13 +818,14 @@ def _so_parse_html(html: str) -> list[ParseRow]:
                 sku = sku_match.group(1)
 
         price_el = item.select_one(".ty-price-num, .ty-price, .price-num")
-        price = _so_parse_price(price_el.get_text(strip=True) if price_el else None)
+        price = SourceAdapter._num(price_el.get_text(strip=True) if price_el else None)
         if price is None:
+            rows.append(({"parse_error": "missing_price"}, str(item), "html"))
             continue
 
         list_price_el = item.select_one(".ty-list-price, .strike-price")
         list_price_text = list_price_el.get_text(strip=True) if list_price_el else None
-        listed_price = _so_parse_price(list_price_text)
+        listed_price = SourceAdapter._num(list_price_text)
 
         manufacturer = _so_labeled_field(item, ("Manufacturer", "Brand"))
         condition_raw = _so_labeled_field(item, ("Condition",))
@@ -906,7 +858,9 @@ class ServerorbitAdapter(SourceAdapter):
     """Adapter for serverorbit.com CS-Cart grid listings.
 
     One RawCapture per grid card. SKU falls back to the parenthesized MPN in
-    the title; manufacturer/condition come from the labeled feature rows.
+    the title; manufacturer/condition come from the labeled feature rows. A
+    card with no title or no price is emitted as a ``parse_error`` capture
+    instead of being dropped.
     """
 
     source_name: ClassVar[str] = "serverorbit"
@@ -919,25 +873,34 @@ class ServerorbitAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        html = _payload_text(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        html = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         rows = _so_parse_html(html)
         if not rows:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="item-"),
                 url=SO_BASE_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
         for fields, raw, fmt in rows:
+            if "parse_error" in fields:
+                yield self._error_capture(
+                    error=str(fields["parse_error"]),
+                    raw_payload=raw,
+                    payload_format=fmt,
+                    source=self.source_name,
+                    extra=extra,
+                    fetched_at=fetched_at,
+                )
+                continue
             listing_id = str(fields.get("sku") or fields.get("product_id") or "")
             if not listing_id:
                 listing_id = fallback_listing_id(raw, prefix="item-")
@@ -965,22 +928,6 @@ DT_CONDITION_SUFFIXES = {
     "US": "Used",
 }
 
-
-def _dt_num(value: str | float | int | None) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value).replace(",", "")
-    if re.sub(r"[^0-9.]", "", text).count(".") > 1:
-        return None
-    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
-    if not match:
-        return None
-    try:
-        return float(match.group(0))
-    except ValueError:
-        return None
 
 
 def _dt_category_path_from_url(url: str) -> str:
@@ -1051,8 +998,8 @@ def _dt_parse_listing_page(html: str, *, category_path: str | None = None) -> li
         url = urljoin(DT_BASE_URL, href) if href else ""
         price_el = item.select_one(".product-views-price-lead")
         old_el = item.select_one(".product-views-price-old")
-        current = _dt_num(price_el.get_text() if price_el else None)
-        listed = _dt_num(old_el.get_text() if old_el else None)
+        current = SourceAdapter._num(price_el.get_text() if price_el else None)
+        listed = SourceAdapter._num(old_el.get_text() if old_el else None)
         stock_el = item.select_one(".product-line-stock")
         stock_text = stock_el.get_text(" ", strip=True) if stock_el else ""
         availability = stock_text or None
@@ -1092,12 +1039,6 @@ class DisctechAdapter(SourceAdapter):
     source_name: ClassVar[str] = "disctech"
     fixture_path: ClassVar[Path | None] = LEGACY_FIXTURE_ROOT / "disctech" / "fixtures"
 
-    def _iter_fixture_files(self) -> Iterator[Path]:
-        if self.fixture_path is None:
-            return
-        for pattern in ["*.json", "*.html", "*.htm", "*.ssp", "*.xml", "*.csv"]:
-            yield from sorted(self.fixture_path.glob(pattern))
-
     def parse_raw(
         self,
         raw_data: str | bytes,
@@ -1105,10 +1046,8 @@ class DisctechAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        html = _payload_text(raw_data)
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        html = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
 
         if "SC.CATEGORIES" in html:
             yield from self._parse_categories(html, fetched_at, extra)
@@ -1116,14 +1055,15 @@ class DisctechAdapter(SourceAdapter):
 
         rows = _dt_parse_listing_page(html, category_path=extra.get("category_path"))
         if not rows:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="item-"),
                 url=DT_BASE_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 
@@ -1150,27 +1090,29 @@ class DisctechAdapter(SourceAdapter):
         try:
             roots = extract_categories_json(html)
         except (ValueError, json.JSONDecodeError) as exc:
-            yield self._make_capture(
+            yield self._error_capture(
+                error=str(exc),
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="category-"),
                 url=DT_BASE_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": str(exc)},
             )
             return
 
         leaves = _dt_leaf_category_nodes(roots)
         if not leaves:
-            yield self._make_capture(
+            yield self._error_capture(
+                error="no_items_found",
+                raw_payload=html,
+                payload_format="html",
                 source=self.source_name,
                 source_listing_id=fallback_listing_id(html, prefix="category-"),
                 url=DT_BASE_URL,
-                raw_payload=html,
-                payload_format="html",
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_items_found"},
             )
             return
 

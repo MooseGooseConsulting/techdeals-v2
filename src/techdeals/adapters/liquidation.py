@@ -15,7 +15,6 @@ Field mapping follows ``TechdealsHandoff/scripts/ingest/liquidation_com/``:
 """
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,12 +23,14 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from techdeals.adapters.base import SourceAdapter, fallback_listing_id, register_adapter
+from techdeals.adapters.base import (
+    LEGACY_FIXTURE_ROOT,
+    SourceAdapter,
+    fallback_listing_id,
+    register_adapter,
+)
 from techdeals.ingestion.contract import RawCapture
 
-LEGACY_FIXTURE_ROOT = Path(
-    os.environ.get("LEGACY_FIXTURE_ROOT", "/home/coldaine/TechdealsHandoff/scripts/ingest")
-)
 BASE_ORIGIN = "https://www.liquidation.com"
 
 AUCTION_LINK_RE = re.compile(r"auction/view\?id=(\d+)")
@@ -397,10 +398,8 @@ class LiquidationComAdapter(SourceAdapter):
         fetched_at: datetime | None = None,
         metadata: dict | None = None,
     ) -> Iterator[RawCapture]:
-        html = raw_data.decode("utf-8") if isinstance(raw_data, bytes) else raw_data
-        extra = dict(metadata or {})
-        if source_url:
-            extra.setdefault("source_url", source_url)
+        html = self._decode(raw_data)
+        extra = self._merge_extra(metadata, source_url)
         soup = BeautifulSoup(html, "html.parser")
         cards = parse_cards(soup, source_url)
         detail = parse_detail(soup, source_url)
@@ -432,14 +431,14 @@ class LiquidationComAdapter(SourceAdapter):
         detail_found = any(value is not None for value in detail.values())
         if not cards and not detail_found and manifest is None:
             listing_id = str(lot_id) if lot_id else fallback_listing_id(html, prefix="lot-")
-            yield self._make_capture(
-                source=self.source_name,
-                source_listing_id=listing_id,
-                url="",
+            yield self._error_capture(
+                error="no_lot_found",
                 raw_payload=html,
                 payload_format="html",
+                source=self.source_name,
+                source_listing_id=listing_id,
+                extra=extra,
                 fetched_at=fetched_at,
-                metadata={**extra, "parse_error": "no_lot_found"},
             )
             return
 
@@ -459,23 +458,24 @@ class LiquidationComAdapter(SourceAdapter):
             metadata={**extra, **fields},
         )
 
-    def load_fixtures(self, max_count: int | None = None) -> Iterator[RawCapture]:
-        """Load fixtures, concatenating each lot's card, detail, and manifest files."""
-        if self.fixture_path is None:
-            raise FileNotFoundError(f"No fixture path configured for {self.source_name}")
-        if not self.fixture_path.exists():
-            raise FileNotFoundError(f"Fixture directory not found: {self.fixture_path}")
+    def load_fixtures(self, max_files: int | None = None) -> Iterator[RawCapture]:
+        """Load fixtures, concatenating each lot's card, detail, and manifest files.
+
+        ``max_files`` caps the number of fixture files read.
+        """
+        self._require_fixture_path()
 
         groups: dict[str, list[Path]] = {}
+        count = 0
         for fixture_file in sorted(self._iter_fixture_files()):
+            if max_files is not None and count >= max_files:
+                break
+            count += 1
             parts = fixture_file.stem.rsplit("_", 1)
             lot_id = parts[1] if len(parts) == 2 else fixture_file.stem
             groups.setdefault(lot_id, []).append(fixture_file)
 
-        count = 0
         for lot_id, files in groups.items():
-            if max_count is not None and count >= max_count:
-                break
             ordered = sorted(files, key=_fixture_rank)
             chunks: list[str] = []
             fetched_at: datetime | None = None
@@ -503,7 +503,6 @@ class LiquidationComAdapter(SourceAdapter):
                     "fixture_files": [str(f) for f in ordered],
                 },
             )
-            count += 1
 
 
 def _fixture_rank(fixture_file: Path) -> int:
