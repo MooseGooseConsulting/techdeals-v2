@@ -46,6 +46,10 @@ from techdeals.ingestion.contract import IngestionStatus, RawCapture
 
 LEGACY_RESEARCH_ROOT = Path("/home/coldaine/TechdealsHandoff/research")
 
+# In-repo sample fixtures (shipped with the pipeline) used when the legacy
+# corpus directory for a source does not exist on disk.
+REPO_FIXTURE_ROOT = Path(__file__).resolve().parents[3] / "fixtures"
+
 
 # --------------------------------------------------------------------------
 # slickdeals: RSS 2.0 mini-PC deal feed
@@ -430,12 +434,13 @@ class GoogleShoppingAdapter(SourceAdapter):
 
     source_name: ClassVar[str] = "google_shopping"
     # The legacy corpus ships no google_shopping fixtures (its data is manually
-    # maintained CSV exports), so fixture_path is wired to the fixtures
-    # directory only when one exists and stays None otherwise.
+    # maintained CSV exports), so fixture_path prefers the legacy fixtures
+    # directory when one exists and falls back to the in-repo sample fixtures
+    # so the source always has testable data.
     fixture_path: ClassVar[Path | None] = (
         LEGACY_FIXTURE_ROOT / "google_shopping" / "fixtures"
         if (LEGACY_FIXTURE_ROOT / "google_shopping" / "fixtures").is_dir()
-        else None
+        else REPO_FIXTURE_ROOT / "google_shopping"
     )
 
     def parse_raw(
@@ -507,6 +512,7 @@ class GoogleShoppingAdapter(SourceAdapter):
                     "source_row_number": row_index,
                     "observed_date": observed_date,
                     "product_name": product_name,
+                    "title": product_name,
                     "price": SourceAdapter._num(cleaned.get(columns["price"])),
                     "merchant": merchant,
                     "condition_notes": notes,
@@ -682,6 +688,13 @@ def _spl_parse_visible_rows(
         tier, tier_mod = _spl_parse_tier(tier_raw)
         row_id = row[18].strip() if has_row_id else ""
         stable_key = row_id or _spl_stable_key(sheet_name, row[:18])
+        title = _spl_normalize_text(
+            " ".join(
+                part
+                for part in (brand, series, sub_series_1, sub_series_2)
+                if part.strip()
+            )
+        )
         records.append(
             {
                 "source_sheet": sheet_name,
@@ -694,6 +707,7 @@ def _spl_parse_visible_rows(
                 "sub_series_1_clean": _spl_normalize_text(sub_series_1),
                 "sub_series_2": sub_series_2,
                 "sub_series_2_clean": _spl_normalize_text(sub_series_2),
+                "title": title or None,
                 "wattages_raw": wattages_raw,
                 "wattage_values": wattage_values,
                 "watt_min": watt_min,
@@ -792,6 +806,7 @@ class SplPsuTierListAdapter(SourceAdapter):
                         "data_type": "judgment",
                         "quarantine_reason": "reference_data_not_posting",
                         **record,
+                        "price": None,
                     },
                 )
                 capture.status = IngestionStatus.quarantined
@@ -938,6 +953,7 @@ def _ssd_parse_row(row: Mapping[str, str | None], row_number: int) -> dict[str, 
         "row_number": row_number,
         "brand": brand,
         "model_name": model,
+        "title": model,
         "capacity_gb": capacity,
         "interface": _ssd_optional(row.get("interface")),
         "form_factor": _ssd_optional(row.get("form_factor")),
@@ -947,6 +963,7 @@ def _ssd_parse_row(row: Mapping[str, str | None], row_number: int) -> dict[str, 
         "has_dram": has_dram,
         "retailer": (row.get("retailer") or "").strip(),
         "price_usd": float(price),
+        "price": float(price),
         "original_price_usd": float(original_price) if original_price is not None else None,
         "discount_pct": float(discount_pct) if discount_pct is not None else None,
         "coupon_code": _ssd_optional(row.get("coupon_code")),
@@ -1083,11 +1100,21 @@ def _atlas_client_quotes(entry: Mapping[str, Any], product_id: str) -> list[dict
 
 def _atlas_product_fields(entry: Mapping[str, Any]) -> dict[str, Any]:
     product_id = str(entry.get("id") or "")
+    quotes = _atlas_client_quotes(entry, product_id)
+    active_amounts = [q["amount"] for q in quotes if q["active"]]
+    all_amounts = [q["amount"] for q in quotes]
+    price = (
+        min(active_amounts)
+        if active_amounts
+        else (min(all_amounts) if all_amounts else None)
+    )
     return {
         "product_id": product_id,
         "product_class": str(entry.get("class") or ""),
         "brand": entry.get("brand"),
         "name": entry.get("name"),
+        "title": entry.get("name") or product_id or None,
+        "price": price,
         "aliases": entry.get("aliases"),
         "capacities": [
             c for c in (entry.get("capacities") or []) if SourceAdapter._num(c) is not None
@@ -1116,7 +1143,7 @@ def _atlas_product_fields(entry: Mapping[str, Any]) -> dict[str, Any]:
         "active_power_w": SourceAdapter._num(entry.get("activePowerW")),
         "idle_power_w": SourceAdapter._num(entry.get("idlePowerW")),
         "workload": entry.get("workload"),
-        "client_quotes": _atlas_client_quotes(entry, product_id),
+        "client_quotes": quotes,
     }
 
 

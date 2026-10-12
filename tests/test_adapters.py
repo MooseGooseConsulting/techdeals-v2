@@ -101,6 +101,7 @@ def test_shopify_adapter_parses_sample_product() -> None:
     meta = capture.metadata
     assert meta["title"] == "1200GB 10K SAS 12G SFF HDD PE Gen14"
     assert meta["condition_raw"] == "Refurbished"
+    assert meta["condition"] == "Refurbished"
     assert meta["sku"] == "SWP_1.2TB10KSAS"
     assert meta["price"] == 349.0
     assert meta["listed_price"] == 399.0
@@ -109,6 +110,40 @@ def test_shopify_adapter_parses_sample_product() -> None:
     assert meta["product_type"] == "Hard Drive"
     assert meta["variant_count"] == 1
     assert meta["source_url"] == "https://www.waterpanther.com/collections/all/products.json"
+
+
+def test_condition_is_extracted_from_item_condition_tag() -> None:
+    product = dict(SAMPLE_SHOPIFY_PRODUCT)
+    product["title"] = "1200GB 10K SAS 12G SFF HDD PE Gen14"
+    product["tags"] = ["HDD", "Item Condition_Refurbished"]
+    adapter = WaterpantherAdapter()
+    captures = list(adapter.parse_raw(json.dumps({"products": [product]}), fetched_at=FETCHED_AT))
+
+    assert len(captures) == 1
+    meta = captures[0].metadata
+    assert meta["condition"] == "Refurbished"
+    assert meta["condition_raw"] is None
+    assert meta["tags"] == ["HDD", "Item Condition_Refurbished"]
+
+
+def test_condition_tag_precedes_title_prefix() -> None:
+    product = dict(SAMPLE_SHOPIFY_PRODUCT)
+    product["tags"] = ["Item Condition_Open Box"]
+    adapter = WaterpantherAdapter()
+    captures = list(adapter.parse_raw(json.dumps({"products": [product]}), fetched_at=FETCHED_AT))
+
+    assert captures[0].metadata["condition"] == "Open Box"
+    assert captures[0].metadata["condition_raw"] == "Refurbished"
+
+
+def test_condition_is_null_when_neither_tag_nor_prefix() -> None:
+    product = dict(SAMPLE_SHOPIFY_PRODUCT)
+    product["title"] = "1200GB 10K SAS 12G SFF HDD PE Gen14"
+    product["tags"] = ["HDD", "SAS"]
+    adapter = WaterpantherAdapter()
+    captures = list(adapter.parse_raw(json.dumps({"products": [product]}), fetched_at=FETCHED_AT))
+
+    assert captures[0].metadata["condition"] is None
 
 
 def test_adapter_produces_valid_raw_capture_objects() -> None:
@@ -310,6 +345,7 @@ def test_load_fixtures_from_corpus() -> None:
 
     captures = list(adapter.load_fixtures(max_files=1))
     assert len(captures) == 250
+    assert captures[0].metadata["condition"] == "New"
     for capture in captures:
         assert capture.source == "waterpanther"
         assert capture.payload_format == "json"
@@ -484,17 +520,42 @@ def test_hardwareswap_hw_w_title_semantics() -> None:
     assert classify_listing_type("hardwareswap", hws_bundle) == "sale"
 
 
-def test_duplicate_atom_entry_is_flagged_not_dropped() -> None:
+def test_duplicate_atom_entry_is_marked_not_plain_and_deduped_by_post_id() -> None:
     adapter = RedditHardwareswapAdapter()
     duplicated = _atom_feed(HWS_SALE_ENTRY, HWS_WTB_ENTRY, HWS_TRADE_ENTRY, HWS_SALE_ENTRY)
     captures = list(adapter.parse_raw(duplicated, fetched_at=FETCHED_AT))
 
     assert len(captures) == 4
     ids = [c.source_listing_id for c in captures]
-    assert ids == ["t3_hwssale1", "t3_hwswtb1", "t3_hwstrade1", "t3_hwssale1"]
+    assert ids == ["t3_hwssale1", "t3_hwswtb1", "t3_hwstrade1", "t3_hwssale1#dup-1"]
     assert "duplicate_of" not in captures[0].metadata
-    assert captures[3].metadata["duplicate_of"] == "hwssale1"
+    assert captures[0].status == IngestionStatus.raw
+    assert captures[3].metadata["duplicate_of"] == "t3_hwssale1"
     assert captures[3].metadata["post_id"] == "hwssale1"
+    assert captures[3].metadata["on_duplicate"] == "first_wins"
+    assert captures[3].status == IngestionStatus.quarantined
+
+
+def test_duplicate_atom_entry_keep_all_preserves_plain_listing_ids() -> None:
+    adapter = RedditHardwareswapAdapter()
+    adapter.on_duplicate = "keep_all"
+    duplicated = _atom_feed(HWS_SALE_ENTRY, HWS_WTB_ENTRY, HWS_TRADE_ENTRY, HWS_SALE_ENTRY)
+    captures = list(adapter.parse_raw(duplicated, fetched_at=FETCHED_AT))
+
+    assert [c.source_listing_id for c in captures] == [
+        "t3_hwssale1",
+        "t3_hwswtb1",
+        "t3_hwstrade1",
+        "t3_hwssale1",
+    ]
+    assert captures[3].metadata["duplicate_of"] == "t3_hwssale1"
+    assert captures[3].metadata["on_duplicate"] == "keep_all"
+    assert captures[3].status == IngestionStatus.raw
+
+
+def test_reddit_adapters_default_to_first_wins_dedupe() -> None:
+    assert RedditHomelabsalesAdapter.on_duplicate == "first_wins"
+    assert RedditHardwareswapAdapter.on_duplicate == "first_wins"
 
 
 def test_atom_namespace_is_handled_both_ways() -> None:
@@ -620,7 +681,7 @@ def test_reddit_load_fixtures_from_corpus() -> None:
         "t3_hwswtb1",
         "t3_hwstrade1",
         "t3_hwsamb1",
-        "t3_hwssale1",
+        "t3_hwssale1#dup-1",
     ]
     assert [c.metadata["listing_type"] for c in hws_captures] == [
         "sale",
@@ -630,7 +691,8 @@ def test_reddit_load_fixtures_from_corpus() -> None:
         "sale",
     ]
     assert "duplicate_of" not in hws_captures[0].metadata
-    assert hws_captures[4].metadata["duplicate_of"] == "hwssale1"
+    assert hws_captures[4].metadata["duplicate_of"] == "t3_hwssale1"
+    assert hws_captures[4].status == IngestionStatus.quarantined
     for capture in hws_captures:
         assert capture.source == "reddit_hardwareswap"
         assert capture.metadata["fixture_file"].endswith("sample_hws_atom.xml")

@@ -251,6 +251,7 @@ def test_google_shopping_legacy_schema_rows() -> None:
     assert meta["source_row_number"] == 1
     assert meta["observed_date"] == "2026-10-12"
     assert meta["product_name"].startswith("Western Digital WD82PURX")
+    assert meta["title"] == meta["product_name"]
     assert meta["price"] == 317.02
     assert meta["merchant"] == "GotoDirect"
     assert meta["condition_class"] == "refurbished"
@@ -333,13 +334,23 @@ def test_google_shopping_header_only_is_flagged() -> None:
     assert captures[0].metadata["parse_error"] == "no_items_found"
 
 
-def test_google_shopping_registry_without_fixtures() -> None:
+def test_google_shopping_sample_fixture_loads() -> None:
     assert "google_shopping" in list_sources()
     adapter = get_adapter("google_shopping")
     assert isinstance(adapter, GoogleShoppingAdapter)
-    assert adapter.fixture_path is None
-    with pytest.raises(FileNotFoundError):
-        list(adapter.load_fixtures())
+    assert adapter.fixture_path is not None and adapter.fixture_path.exists()
+
+    captures = list(adapter.load_fixtures())
+    assert len(captures) >= 2
+    schemas = {c.metadata["schema_mode"] for c in captures}
+    assert "legacy_url_export" in schemas
+    assert "reduced_manual" in schemas
+    for capture in captures:
+        assert capture.source == "google_shopping"
+        assert capture.metadata.get("parse_error") is None
+        assert capture.metadata["title"] == capture.metadata["product_name"]
+        assert capture.metadata["price"] is not None
+        RawCapture.model_validate(capture.model_dump())
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +486,8 @@ def test_spl_main_sheet_record_fields() -> None:
     assert meta["source_sheet"] == SPL_MAIN
     assert meta["brand"] == "Corsair"
     assert meta["series"] == "RMx"
+    assert meta["title"] == "Corsair RMx Gold 2021"
+    assert meta["price"] is None
     assert meta["wattages_raw"] == "650/750/850W"
     assert meta["wattage_values"] == [650, 750, 850]
     assert meta["watt_min"] == 650
@@ -614,9 +627,11 @@ def test_ssd_pricing_row_becomes_capture() -> None:
     assert capture.source_listing_id.startswith("ssd-url-")
     assert meta["brand"] == "Samsung"
     assert meta["model_name"] == "T7"
+    assert meta["title"] == "T7"
     assert meta["capacity_gb"] == 2000
     assert meta["retailer"] == "BestBuy"
     assert meta["price_usd"] == 237.99
+    assert meta["price"] == 237.99
     assert meta["in_stock"] is True
     assert meta["scraped_at"] == "2026-07-31T07:42:08+00:00"
     assert meta["source_type"] == "serp_result"
@@ -760,6 +775,9 @@ def test_atlas_product_metadata_includes_quotes_and_specs() -> None:
     assert meta["snapshot_date"] == "2026-07-16"
     assert meta["product_class"] == "client"
     assert meta["brand"] == "WD_BLACK / SanDisk"
+    assert meta["name"] == "SN8100"
+    assert meta["title"] == "SN8100"
+    assert meta["price"] == 399.5
     assert meta["read_mbps"] == 14900.0
     assert meta["capacities"] == [1, 2, 4, 8]
     assert meta["tbw_by_capacity"] == {"1": 600, "2": 1200}
@@ -781,6 +799,8 @@ def test_atlas_enterprise_product_has_no_client_quotes() -> None:
 
     assert enterprise.metadata["product_class"] == "enterprise"
     assert enterprise.metadata["client_quotes"] == []
+    assert enterprise.metadata["title"] == "PM9D3a"
+    assert enterprise.metadata["price"] is None
     assert json.loads(enterprise.raw_payload)["procurement"]["lowPerTb"] == 120.0
 
 

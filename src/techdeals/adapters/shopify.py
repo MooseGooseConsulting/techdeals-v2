@@ -17,6 +17,21 @@ from techdeals.adapters.base import LEGACY_FIXTURE_ROOT, SourceAdapter, register
 from techdeals.ingestion.contract import RawCapture
 
 CONDITION_PREFIXES = ("Refurbished:", "New:", "Used:", "Open Box:")
+CONDITION_TAG_RE = re.compile(r"^Item Condition[_:\-\s]+(\S.*?)\s*$", re.I)
+
+
+def _condition_from_tags(tags: Any) -> str | None:
+    """Extract the item condition from Shopify tags like ``Item Condition_New``."""
+    if not isinstance(tags, list):
+        return None
+    for tag in tags:
+        if not isinstance(tag, str):
+            continue
+        match = CONDITION_TAG_RE.match(tag.strip())
+        if match:
+            value = match.group(1).strip()
+            return value or None
+    return None
 
 
 def _split_condition_title(raw: str) -> tuple[str | None, str]:
@@ -137,11 +152,13 @@ class ShopifyAdapter(SourceAdapter):
             ]
 
         first = rows[0]
+        condition = _condition_from_tags(product.get("tags")) or first["condition_raw"]
         fields = {
             "product_id": product_id,
             "handle": handle,
             "title": first["title"],
             "condition_raw": first["condition_raw"],
+            "condition": condition,
             "sku": first["sku"],
             "price": first["price"],
             "listed_price": first["listed_price"],
