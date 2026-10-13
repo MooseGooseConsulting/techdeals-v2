@@ -5,14 +5,6 @@ This is the authoritative briefing for the v2 rebuild. It exists so that any age
 we will know we arrived, and where to find the raw material. Read this before
 planning anything.
 
-The two attempts now live in this one repository:
-
-- `schema/` and `engine/` are the extraction path that was run and scored.
-  `engine/slice3_report.md` records that run. New parsing work goes there.
-- `src/techdeals/adapters` is the fetch side. `techdeals ingest` loads captures
-  through the package. `src/techdeals/schema` is still what that package migrates;
-  it is not a second product.
-
 ---
 
 ## 0. Hard Parts & Requirements (owner-distilled, read first)
@@ -357,14 +349,25 @@ If an ingestion step cannot show which query it feeds, it does not get built.
 
 ## 7. Environment & Credentials
 
-- **Neon** (scratch DB host): `NEON_API_KEY` + `NEON_DATABASE_KEY` in Doppler
-  `apps-data/dev`. No `neonctl` installed — use the Neon API via `curl`. Never
-  print secret values; `--only-names` to locate, `doppler run` to inject.
+- **Neon** (scratch DB host — LIVE 2026-10-12): scratch project `techdeals-v2`
+  (`winter-brook-99288103`), org Patrick (`org-dark-union-91305365`),
+  region `aws-us-east-2`, branch `main` (`br-tiny-rain-b4ynpurt`). Provisioned
+  via `neon` CLI (mise shim) with OAuth as pmaclyman — NOT via Doppler keys
+  (the `napi_`-prefix keys in Doppler `apps-data/dev` are org-scoped API keys
+  that cannot enumerate orgs; the pasted `napi_` token failed API auth and must
+  be rotated — it sits in shell history). Non-interactive pattern:
+  `neon <cmd> --project-id winter-brook-99288103` (bare commands hang on an
+  org picker). Record project/branch IDs here on first write — done. Incluster
+  DSNs (`DBHUB_PG_DSN_*` in `homelab/dev`) do NOT resolve off-cluster.
+  Never print secret values; `--only-names` to locate, `doppler run` to inject.
 - **LLM endpoints**: Doppler `ai-automation/dev` has OpenRouter, Kilo
   (`KILO_CODE_API_KEY`, `KILO_GATEWAY_API`), Gemini, Groq, DeepSeek, Mistral,
   Anthropic, OpenAI. `homelab/dev` additionally has LiteLLM gateway keys — a
-  self-hosted proxy that may be the cheapest batch path. Prefer free/cheap tiers;
-  record cost per batch regardless.
+  self-hosted proxy that may be the cheapest batch path. OpenRouter key verified
+  live 2026-10-12 (HTTP 200 on /models); free/near-free batch candidates with 1M
+  context confirmed in catalog: `qwen/qwen3.8-omni-flash` ($0.15/MTok prompt),
+  `deepseek/deepseek-v4.1-flash:batch` tier. Prefer free/cheap tiers; record cost
+  per batch regardless.
 - **Local tooling**: `psql` 18.6, `jq`, `curl`, `python3`, `uv` present.
 - **Hard constraint**: do NOT touch the existing production cluster or the old
   databases. Neon is the sandbox.
