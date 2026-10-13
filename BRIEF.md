@@ -5,6 +5,14 @@ This is the authoritative briefing for the v2 rebuild. It exists so that any age
 we will know we arrived, and where to find the raw material. Read this before
 planning anything.
 
+The two attempts now live in this one repository:
+
+- `schema/` and `engine/` are the extraction path that was run and scored.
+  `engine/slice3_report.md` records that run. New parsing work goes there.
+- `src/techdeals/adapters` is the fetch side. `techdeals ingest` loads captures
+  through the package. `src/techdeals/schema` is still what that package migrates;
+  it is not a second product.
+
 ---
 
 ## 0. Hard Parts & Requirements (owner-distilled, read first)
