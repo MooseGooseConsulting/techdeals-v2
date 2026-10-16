@@ -1,5 +1,7 @@
 # Cluster intake and retention evidence
 
+Historical October 2026 audit; counts below are not current inventory.
+
 ## Scope and evidence boundaries
 
 Queried **`techdeals_work` and `market_live` on `pg18-core-db.moosegoose.xyz`**, read-only. No production/repository changes, collectors, tests, builds, linters, or formatters.
@@ -250,7 +252,7 @@ Seven `collection_runs` remained `running` for more than a day at observation, i
 
 ## Reproducible SQL
 
-Run through the agreed Doppler/`psql -X -v ON_ERROR_STOP=1` read-only wrapper.
+Use the [read-only connection options](cluster-price-evidence.md#reproducible-sql).
 
 ### Work intake partitions, retention, source accounting, and counters
 
