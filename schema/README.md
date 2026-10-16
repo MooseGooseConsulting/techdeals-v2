@@ -107,6 +107,20 @@ retains an empty URL plus explicit incomplete provenance.
   posting has a LATER extraction that produced lines, with no later release
   event. Catches the stale `parse_failed` events bring-up runs leave behind.
 
+## Same-key corrections
+
+To replace a live price or category with the same unique key, generate a later
+UUID, defer the relevant `price_observations_superseded_by_fk` or
+`categories_superseded_by_fk`, point the old row at that UUID, then insert the
+replacement using it. Set constraints immediate before committing. The partial
+live-key index remains active, while the deferred FK requires the replacement
+to exist. Supersession must remain within the same logical series.
+
+The rollback checks in
+[`supersession_regression.sql`](../tests/supersession_regression.sql) and
+[`integrity_regression.sql`](../tests/integrity_regression.sql) exercise missing
+targets, atomic same-key corrections, and cross-series rejection.
+
 ## Neon branch
 
 - Project: `winter-brook-99288103` (scratch `techdeals-v2` project)

@@ -330,9 +330,31 @@ incomplete-evidence intake, semantic parsing, field review or useful query
 acceptance; those remain in issue #17. Both repositories remain active, and no
 archival is planned. Production has not been changed.
 
-Execution checkpoint, PR #19 completion: see the
-[consolidation decisions and verification](../research/2026-10-15-parsing-review/consolidation-status.md)
-for the exact retained, removed and deferred scope. The consolidation preserves
-#21–#23, omits the arbitrary-confidence resolver and experimental part-out
-registration, and supersedes review-import #4 once merged. It does not complete
-the semantic evaluation, incomplete-evidence intake or application-answer gates.
+## Current implementation boundary and next work
+
+The canonical repository has the bounded intake/schema repairs from
+[PR #19](https://github.com/MooseGooseConsulting/techdeals-v2/pull/19), free-model
+defaults and Doppler settings. PR decisions, review replies and verification
+history belong on the PRs. The arbitrary-confidence resolver is omitted, and
+experimental part-out views remain unregistered.
+
+The next work is to select and prove one capture-to-consumer path against the
+real cases above. The active follow-up issues are:
+
+- [#17: semantic parsing, field correctness and useful application answers](https://github.com/MooseGooseConsulting/techdeals-v2/issues/17):
+  choose the path and representation; implement queryable incomplete-evidence
+  intake; reconcile the packaged and standalone paths; justify matching and
+  prove actual consumer answers. Unknown fetch times must remain unknown.
+- [#20: line identity and replay](https://github.com/MooseGooseConsulting/techdeals-v2/issues/20):
+  define identity before attempting a remap across new line UUIDs. The executable
+  reproduction is [line-priced-replay.sql](../../tests/reproductions/line-priced-replay.sql).
+  Line-priced replay remains unsupported; the current standalone writer emits
+  group prices.
+- [#18: availability](https://github.com/MooseGooseConsulting/techdeals-v2/issues/18):
+  establish current versus historical use and verify the consumer's selection.
+- [#16: valuation](https://github.com/MooseGooseConsulting/techdeals-v2/issues/16):
+  test assumptions against sufficient real parts evidence before registering
+  part-out/rate views. The unvalidated SQL proposal is attached to that issue.
+
+Passing local or SQL regressions does not complete these acceptance gates.
+Production incorporation follows the bounded integration steps above.
