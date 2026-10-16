@@ -1,10 +1,10 @@
--- Rollback-only reproduction for PR 4 line-offer replay finding.
+-- Rollback-only reproduction for issue #20: line-priced replay loses its ask.
 -- Target used: Neon project winter-brook-99288103, branch
 -- br-morning-lab-b4rc55s8 (pr-review-20261016), database
 -- pr4_final_validation. No connection string or credential is stored here.
 --
 -- Run against a database with the TechDeals v2 schema already installed:
---   psql -v ON_ERROR_STOP=1 -f line-replay-reproduction.sql
+--   psql -v ON_ERROR_STOP=1 -f tests/reproductions/line-priced-replay.sql
 -- The SAVEPOINT rollback removes all inserted rows and the temporary table.
 \set ON_ERROR_STOP on
 BEGIN;

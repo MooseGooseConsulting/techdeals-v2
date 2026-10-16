@@ -32,8 +32,8 @@ unchanged, not assigned a source-date or mtime fallback. Safe saved-result repla
 requires the v2 checksum/key envelope. Group-price replay has narrow regression
 coverage; line-priced replay remains unsupported under issue #20. The packaged
 CLI's `extract` command explicitly exits 2 because its persistence path is
-unavailable. See [consolidation decisions](../docs/research/2026-10-15-parsing-review/consolidation-status.md)
-for retained and deferred scope. Passing SQL and local tests do not establish
+unavailable. See the [execution plan](../docs/plans/parsing-usefulness-and-integration.md)
+for the remaining design and integration work. Passing SQL and local tests do not establish
 semantic parsing quality or correct consumer answers.
 
 ## How to run
