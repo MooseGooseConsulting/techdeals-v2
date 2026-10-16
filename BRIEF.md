@@ -21,7 +21,7 @@ to configure or call them.
    eventually be sorted, queried, and tallied for analysis: RAM, SSDs, enterprise
    HDDs, servers, U.3 drives, rackmount inference boxes, used gear.
 2. **Parsing is the bottleneck, not scraping** — no regex parser will ever be
-   accurate enough on free-text listings; a small/cheap LLM is required.
+   accurate enough on free-text listings; a free LLM is required.
 3. **Multi-item postings** — one URL containing 8–10 items (a configured server);
    contents must be broken apart and the total cost apportioned across them,
    with the basis of any apportionment recorded.
@@ -122,8 +122,8 @@ Direction is settled; sequencing matters. Each phase feeds the next.
    out-of-scope item) written down as requirements, not discovered as bugs.
 2. **Posting-first schema on Neon scratch** — everything is a *Posting* (see §4).
    Build and iterate on Neon; production and the existing cluster are untouched.
-3. **Batched LLM extraction engine** — small/cheap model, many listings per call.
-   NEVER one listing per call. Free endpoints are fine (see §6).
+3. **Batched LLM extraction engine** — free model, many listings per call.
+   NEVER one listing per call. Use free endpoints only (see §6).
 4. **Acceptance is folded in, not a separate harness** — there is NO standalone
    test-framework mission. Phases 2–3 are verified by running a small set of real
    captured listings across source shapes (§5) through the pipeline and checking
@@ -149,7 +149,7 @@ pipeline and querying the result must show ALL of these:
    resolution is a separate, re-runnable, confidence-scored pass that never
    rewrites history (`offer_key` stable across parser replays).
 6. **Batch economics**: the engine consumes listings in configurable batches per
-   LLM call (target: dozens per call), runs on free/cheap endpoints, and records
+   LLM call (target: dozens per call), runs on free endpoints only, and records
    model + prompt version + cost per batch.
 7. **Dynamic categories**: adding a category is inserting data, not migrating
    schema.
