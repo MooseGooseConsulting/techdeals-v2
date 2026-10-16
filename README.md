@@ -6,6 +6,11 @@ needed for useful buying queries. Start with the
 varied real evidence to correct, traceable answers. Existing production and v2
 schemas are implementations to evaluate, not design authorities.
 
+Runtime credentials are injected into the process environment by Doppler; use
+the existing `just` recipes and the standalone engine's documented `doppler run`
+commands. The application does not automatically read a local `.env` file.
+The free-model defaults are committed in the parser configuration and engine.
+
 The [draft execution and integration plan](docs/plans/parsing-usefulness-and-integration.md)
 records proposed work for repository consolidation, all known open PRs/issues, review follow-through,
 semantic acceptance, and when improvements should enter the production project.

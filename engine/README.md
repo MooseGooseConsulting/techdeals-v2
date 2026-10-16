@@ -14,8 +14,10 @@ title/price/specs — not just eBay servers. No vendor-specific prompt hacks
 ## Current free-model policy
 
 Use free models only. Both the standalone engine and packaged parser default to
-`nvidia/nemotron-3.5-lightning:free` through OpenRouter. The example environment
-uses the same model. No paid model is configured.
+`nvidia/nemotron-3.5-lightning:free` through OpenRouter. Credentials come from
+Doppler-injected process environment variables. The model defaults are committed
+in the parser code; the application does not automatically load a `.env` file.
+No paid model is configured.
 
 The free endpoint does not support `response_format`; its schema is included
 in the prompt and existing local parsing/validation remains in use. This policy
