@@ -1103,7 +1103,7 @@ def price_observation(l: dict, path: str, group: dict) -> tuple[dict | None, str
     }, None
 
 
-def build_batch_doc(batch: list[dict], model: str, parser_name: str, cost_usd: float,
+def build_batch_doc(batch: list[dict], model: str, parser_name: str, cost_usd: float | None,
                     results_by_id: dict[str, dict], failed_ids: dict[str, str],
                     prior_quarantines: dict[str, str] | None = None) -> dict:
     """Turn validated model results into one DB transaction doc.
@@ -1372,14 +1372,19 @@ def run_batch_call(client: BatchClient, batch: list[dict], max_tokens: int,
         if l["client_id"] not in results_by_id and l["client_id"] not in failed:
             failed[l["client_id"]] = "no result returned for this listing"
 
-    pp, cp = MODEL_PRICES.get(client.model, (0.0, 0.0))
-    cost = ((meta["prompt_tokens"] or 0) * pp + (meta["completion_tokens"] or 0) * cp) / 1e6
+    rates = MODEL_PRICES.get(client.model)
+    cost = None
+    if rates is not None:
+        pp, cp = rates
+        cost = ((meta["prompt_tokens"] or 0) * pp
+                + (meta["completion_tokens"] or 0) * cp) / 1e6
     row = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "batch_index": batch_index, "model": client.model, "prompt_version": PROMPT_VERSION,
         "listing_count": len(batch),
         "input_tokens": meta["prompt_tokens"], "output_tokens": meta["completion_tokens"],
-        "cached_tokens": meta["cached_tokens"], "cost_usd": round(cost, 6),
+        "cached_tokens": meta["cached_tokens"],
+        "cost_usd": round(cost, 6) if cost is not None else None,
         "latency_s": meta["latency_s"], "retries": 2 - retries_left,
         "truncated": meta["truncated"], "salvaged_parse": meta["salvaged"],
         "retried_missing": meta.get("retried_missing", 0),
@@ -1496,7 +1501,7 @@ def main(argv=None) -> int:
         if not args.skip_db:
             extracted_postings = [l["posting_id"] for l in batch if l["client_id"] in results_by_id]
             prior = db_prior_quarantines(dsn, extracted_postings)
-            doc = build_batch_doc(batch, args.model, parser_name, row.get("cost_usd", 0.0),
+            doc = build_batch_doc(batch, args.model, parser_name, row.get("cost_usd"),
                                   results_by_id, failed, prior_quarantines=prior)
             for note in doc.pop("ledger_notes", []):
                 append_ledger(ledger_path, {"ts": datetime.now(timezone.utc).isoformat(), "run_id": run_id,
@@ -1517,7 +1522,8 @@ def main(argv=None) -> int:
                 print(f"  replay dedupe: {len(dropped_prices)} price / {len(dropped_avail)} availability "
                       f"observation(s) already written by an earlier run — skipped (see ledger)", file=sys.stderr)
             db_write_batch(dsn, doc)
-        print(f"  -> cost ${row.get('cost_usd', 0) or 0:.6f}, {row.get('input_tokens', '?')} in / {row.get('output_tokens', '?')} out tokens, {row.get('latency_s', '?')}s", file=sys.stderr)
+        cost_text = f"${row['cost_usd']:.6f}" if row.get("cost_usd") is not None else "unknown"
+        print(f"  -> cost {cost_text}, {row.get('input_tokens', '?')} in / {row.get('output_tokens', '?')} out tokens, {row.get('latency_s', '?')}s", file=sys.stderr)
 
     listing_by_id = {listing["client_id"]: listing for listing in listings}
     out = {

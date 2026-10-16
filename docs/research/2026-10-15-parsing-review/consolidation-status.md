@@ -53,7 +53,14 @@ Both repositories remain active.
 
 ## Verification on 2026-10-16
 
-- `uv run --extra dev pytest -q tests engine/test_repairs.py`: 96 passed.
+- `uv run --extra dev pytest -q tests engine/test_repairs.py`: 97 passed.
+- Late #22 cost feedback is valid: an unknown override rate now stays NULL in
+  the ledger and database batch and prints as unknown, rather than a fabricated
+  zero. Free defaults and overrides remain; no paid rates or rejection guard
+  are added. #23's request to inject an extraction key assumes a functioning
+  packaged command; that command explicitly exits 2 before any model call.
+  README now makes this boundary clear instead of presenting it as a working
+  extraction recipe.
 - Ruff on `src` and `tests`, `uv lock --check`, schema byte parity and
   `git diff --check`: passed. No dependency versions or lint thresholds lowered.
 - Existing Neon project `winter-brook-99288103`, temporary branch

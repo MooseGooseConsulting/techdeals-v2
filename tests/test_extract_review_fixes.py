@@ -140,3 +140,27 @@ def test_govdeals_adapter_names_auction_event_date() -> None:
     )
     assert capture["auction_end_date"] == "2026-10-08T19:00:00Z"
     assert "timestamp" not in capture
+
+
+def test_override_with_unknown_rates_does_not_fabricate_zero_cost(tmp_path: Path) -> None:
+    class Client:
+        model = "unconfigured-model"
+
+        def call(self, _system, payload, _schema, _tokens):
+            return ([
+                {"id": item["id"], "outcome": "no_purchase_information", "sale_groups": []}
+                for item in payload["listings"]
+            ], {
+                "prompt_tokens": 100, "completion_tokens": 50, "cached_tokens": 0,
+                "latency_s": 0.1, "truncated": False, "salvaged": False,
+            })
+
+    batch = [{"client_id": str(i), "condensed": {}} for i in range(2)]
+    ledger = tmp_path / "ledger.jsonl"
+    results, failed, row = extract.run_batch_call(Client(), batch, 100, str(ledger), 0)
+    assert set(results) == {"0", "1"}
+    assert not failed
+    assert row["cost_usd"] is None
+    assert json.loads(ledger.read_text())["cost_usd"] is None
+    doc = extract.build_batch_doc([], Client.model, "test", row["cost_usd"], {}, {})
+    assert doc["batch"]["cost_usd"] is None
