@@ -1,7 +1,6 @@
 """Focused checks for seller-label provenance during extraction repair."""
 
 import pytest
-
 from engine.extract import _repair_lines
 
 

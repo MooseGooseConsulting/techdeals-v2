@@ -22,8 +22,10 @@ claim. The integration branch remains local.
   `acc96fc`, and documentation updates at `9bcd86b`.
 - View corrections at `2b02cb4` for available inventory, self-comps, missing
   quantity, group replay asks, per-unit versus whole-lot basis, and posting-level
-  quarantine. Line-price, line-availability, and accounting-view replay support
-  remain deferred.
+  quarantine. The reviewed `v_group_ram`, `v_ddr4_gb_rate`, and `v_partout`
+  analytical views are also retained from PR #4. They are candidate analytical
+  logic, not semantically accepted valuation. Line-price, line-availability,
+  and accounting-view replay support remain deferred.
 - Atomic same-key price/category supersession at `e4221e2`, with rollback-only
   proof at `339e08f`.
 - Canonical PR #15 remains in `main`; its newer execution checkpoint and
