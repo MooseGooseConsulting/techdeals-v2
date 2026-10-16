@@ -15,7 +15,6 @@ async def test_configured_free_model_request_omits_unsupported_response_format(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = Settings(
-        _env_file=None,
         neon_database_url="postgresql://localhost/test",
         openrouter_api_key="test-openrouter-key",
         kilo_gateway_api="",
