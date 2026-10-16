@@ -22,7 +22,7 @@ def test_empty_label() -> None:
         "id": "1",
         "outcome": "extracted",
         "sale_groups": [{
-            "label": "Samsung 870 EVO 1TB",
+            "label": "group label is not the line label",
             "availability": "available",
             "price": {
                 "amount": "89.99", "currency": "USD", "price_kind": "ask",
@@ -37,26 +37,40 @@ def test_empty_label() -> None:
                 "children": [],
             }],
         }],
-    })
-    line = res["sale_groups"][0]["lines"][0]
-    expect(line["label"] == "Samsung 870 EVO 1TB", "empty line label filled from the sale group")
-    expect(line["attributes"]["label_filled_from"] == "sale_group_label", "fill source recorded")
-
-    res = extract.validate_result({
-        "id": "2",
-        "outcome": "extracted",
-        "sale_groups": [{
-            "label": None,
-            "availability": "available",
-            "price": None,
-            "lines": [
-                {"label": "kept", "quantity": 1, "separately_purchasable": True, "attributes": {}, "children": []},
-                {"label": "  ", "quantity": None, "separately_purchasable": False, "attributes": {}, "children": []},
-            ],
-        }],
     }, fallback_label="Capture title")
-    labels = [ln["label"] for ln in res["sale_groups"][0]["lines"]]
-    expect(labels == ["kept"], "a blank line is dropped and the labeled line survives")
+    line = res["sale_groups"][0]["lines"][0]
+    expect(line["label"] == "Capture title", "single product label filled from capture title")
+    expect(line["attributes"]["label_filled_from"] == "capture_title", "capture-title fill source recorded")
+
+    for name, lines in (
+        ("multi-component blank", [
+            {"label": "kept", "quantity": 1, "separately_purchasable": True, "attributes": {}, "children": []},
+            {"label": "  ", "quantity": None, "separately_purchasable": False, "attributes": {}, "children": []},
+        ]),
+        ("blank parent with child", [{
+            "label": "", "quantity": None, "separately_purchasable": False,
+            "attributes": {"storage_capacity_gb": 1000},
+            "children": [{"label": "child label", "quantity": 1}],
+        }]),
+        ("blank child", [{
+            "label": "parent", "quantity": None, "separately_purchasable": False,
+            "attributes": {}, "children": [{"label": "  "}],
+        }]),
+    ):
+        try:
+            extract._repair_lines(lines, "group label", "Capture title")
+        except ValueError:
+            expect(True, f"{name} fails explicitly")
+        else:
+            expect(False, f"{name} fails explicitly")
+
+    try:
+        extract._repair_lines([{"label": "", "attributes": {"storage_capacity_gb": 1000}, "children": []}],
+                              "group label", None)
+    except ValueError:
+        expect(True, "group label and generated attributes cannot fill a line label")
+    else:
+        expect(False, "group label and generated attributes cannot fill a line label")
 
 
 def test_lot_versus_each() -> None:

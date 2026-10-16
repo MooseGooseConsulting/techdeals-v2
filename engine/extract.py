@@ -507,71 +507,52 @@ _LOT_LINE = re.compile(
     r"\s*(?P<each>\b(?:each|per|ea)\b|/ea)?"
 )
 _NOT_A_LOT = re.compile(r"(?i)\b(server|chassis|motherboard|poweredge|supermicro|proliant|barebone)\b")
-_LABEL_ATTRS = ("cpu_model", "chassis_model", "motherboard", "gpu")
-
-
-def _label_from_attributes(attrs: dict) -> str | None:
-    parts: list[str] = []
-    for key in _LABEL_ATTRS:
-        val = attrs.get(key)
-        if isinstance(val, str) and val.strip():
-            parts.append(val.strip())
-    dimm = attrs.get("ram_dimm_gb")
-    if isinstance(dimm, (int, float)) and not isinstance(dimm, bool):
-        parts.append(f"{dimm:g}GB DIMM")
-    cap = attrs.get("storage_capacity_gb")
-    if isinstance(cap, (int, float)) and not isinstance(cap, bool):
-        kind = attrs.get("storage_kind")
-        kind_s = kind.strip() if isinstance(kind, str) and kind.strip() else "drive"
-        parts.append(f"{cap:g}GB {kind_s}")
-    if not parts:
-        return None
-    return " ".join(parts)[:300]
 
 
 def _repair_lines(raw_lines, group_label: str | None, fallback_label: str | None) -> list[dict]:
-    """Keep a listing when the model emits an empty line label.
+    """Repair a missing label only when the capture title is unambiguous.
 
-    Fill from the sale-group label, then stated attributes. The capture title
-    is used only when every line in the group is unlabeled (a single product
-    whose name is the listing title). Any line that still has no seller words
-    is dropped, and that drop does not fail the rest of the listing.
+    A blank component in a multi-line listing or a component with children is
+    ambiguous: fail validation rather than dropping it or borrowing another
+    subject's words. Group labels and extracted attributes are not seller
+    descriptions. The capture title is safe only for one top-level product
+    with no children, and that provenance is recorded on the line.
     """
     raw_lines = raw_lines or []
-    any_labeled = any(isinstance(ln, dict) and (ln.get("label") or "").strip() for ln in raw_lines)
-    title_fallback = None if any_labeled else fallback_label
+    if not isinstance(raw_lines, list):
+        raise ValueError("lines is not an array")
     out = []
     for ln in raw_lines:
         if not isinstance(ln, dict):
             raise ValueError("line not an object")
         attrs = {k: v for k, v in (ln.get("attributes") or {}).items() if v is not None}
-        label = (ln.get("label") or "").strip()
+        raw_label = ln.get("label")
+        label = raw_label.strip() if isinstance(raw_label, str) else ""
+        raw_children = ln.get("children") or []
+        if not isinstance(raw_children, list):
+            raise ValueError("line children is not an array")
         filled = None
-        if not label:
-            for source, candidate in (
-                ("sale_group_label", (group_label or "").strip()),
-                ("capture_title", (title_fallback or "").strip()),
-                ("attributes", _label_from_attributes(attrs) or ""),
-            ):
-                if candidate:
-                    label = candidate
-                    filled = source
-                    break
         children = []
-        for c in ln.get("children") or []:
-            if not isinstance(c, dict) or not (c.get("label") or "").strip():
-                continue
+        for c in raw_children:
+            if not isinstance(c, dict):
+                raise ValueError("child line is not an object")
+            child_label = c.get("label")
+            if not isinstance(child_label, str) or not child_label.strip():
+                raise ValueError("child line has no seller label")
             children.append({
-                "label": c["label"].strip(),
+                "label": child_label.strip(),
                 "quantity": c.get("quantity") if isinstance(c.get("quantity"), (int, float)) and not isinstance(c.get("quantity"), bool) else None,
                 "separately_purchasable": bool(c.get("separately_purchasable")),
                 "attributes": {k: v for k, v in (c.get("attributes") or {}).items() if v is not None},
             })
-        if not label and children:
-            label = children[0]["label"]
-            filled = "first_child_label"
         if not label:
-            continue
+            if len(raw_lines) != 1 or children:
+                raise ValueError("blank component label is ambiguous")
+            title = fallback_label.strip() if isinstance(fallback_label, str) else ""
+            if not title:
+                raise ValueError("blank single-product label has no capture title")
+            label = title
+            filled = "capture_title"
         if filled:
             attrs["label_filled_from"] = filled
         qty = ln.get("quantity")
