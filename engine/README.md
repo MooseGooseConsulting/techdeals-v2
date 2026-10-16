@@ -11,6 +11,19 @@ unknown scalars under a byte budget, so it works on any capture that carries
 title/price/specs — not just eBay servers. No vendor-specific prompt hacks
 (the anti-overfit rule: fixture-zero is one cell).
 
+## Current free-model policy
+
+Use free models only. Both the standalone engine and packaged parser default to
+`nvidia/nemotron-3.5-lightning:free` through OpenRouter. Credentials come from
+Doppler-injected process environment variables. The model defaults are committed
+in the parser code; the application does not automatically load a `.env` file.
+No paid model is configured.
+
+The free endpoint does not support `response_format`; its schema is included
+in the prompt and existing local parsing/validation remains in use. This policy
+does not establish semantic parsing quality. The paid pilot measurements and
+results retained below are historical evidence, not active configuration.
+
 ## How to run
 
 ```bash
@@ -41,36 +54,14 @@ Environment: `OPENROUTER_API_KEY` (injected by doppler), `TDV2_DSN`
 (the Neon branch connection string — generated at run time, never stored).
 Dependencies: python3 stdlib + `psql` on PATH.
 
-## Free-model policy for the extraction CLI
-
-`engine/extract.py` allows only the models listed in its `MODEL_PRICES` table;
-the current default is `nvidia/nemotron-3.5-lightning:free`, priced at zero.
-An unlisted `--model` is rejected before loading captures or creating an API
-client. This is a guard on this standalone extraction CLI, not an application-
-wide restriction on other parsers or on already saved results. It controls the
-model slug and recorded cost; it does not establish endpoint availability or
-semantic extraction quality. The earlier paid-model pilot figures below are
-historical measurements and do not validate this free model.
-
-`engine/out/results_label_repair.json` is a historical result from the paid
-`deepseek/deepseek-v4-flash-0731` run, outside the current CLI model allowlist.
-It contains no capture fetch time. Replaying it with `engine/load_results.py`
-uses capture metadata available at replay time; where that metadata has no
-timestamp, the extractor falls back to the capture file's modification time.
-Treat this file as historical evidence only: it does not prove current model
-policy compliance or provenance-faithful replay, and it must not be used as a
-current validated extraction result.
-
 ## What one batch does
 
 1. **Pack** — N condensed captures (field-synonym projection, budgets below)
    into one user message: `{"listings":[{id, ...fields}...]}`. Stable ids are
    the capture's natural item id (or `idxN`), so per-listing verdicts are
    addressable across replays.
-2. **Call** — one chat-completions call, temperature 0. Endpoint capabilities
-   determine whether `response_format: json_schema strict` is sent. The current
-   free Nemotron endpoint does not support it, so the complete output schema is
-   included in the system prompt and results are still locally validated. The
+2. **Call** — one chat-completions call, temperature 0. The complete output
+   schema is included in the system prompt and results are locally validated. The
    system prompt (fixed = `PROMPT_VERSION`) carries the extraction policy:
    purchase-shape semantics
    (sale groups / lines / quantities, absorbed from PR #222's
@@ -111,12 +102,10 @@ current validated extraction result.
 - Latency is the real tax: bigger batches are fewer calls but longer calls
   (~3 min for 20 listings on deepseek-flash-tier models). For wall-clock-bound
   ingest, run batches concurrently; for cost-bound ingest, bigger is better.
-- Structured-output support varies by endpoint. The engine sends
-  `response_format` only for models explicitly marked as supporting JSON Schema;
-  unsupported or unknown models receive the schema in the prompt and still pass
-  through local validation and salvage.
+- The current free endpoint receives its schema through the prompt. Local
+  parsing, validation and failure accounting still apply.
 
-## Cost-per-listing math
+## Historical paid-pilot cost-per-listing math
 
 `cost = (prompt_tokens × prompt_rate + completion_tokens × completion_rate) / 1e6`
 per call, computed from the response `usage` and written into

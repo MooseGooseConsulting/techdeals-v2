@@ -42,19 +42,12 @@ from decimal import Decimal
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free"
-# Models authorized by the standalone extraction CLI; rates drive its cost ledger.
-# Keep this allowlist limited to OpenRouter free-tier model slugs.
+# Free models only by project policy; this is the configured free endpoint.
 MODEL_PRICES = {
     "nvidia/nemotron-3.5-lightning:free": (0.0, 0.0),
 }
-# Structured-output support is endpoint-specific. The current free Nemotron
-# endpoint does not support response_format; unknown models fail closed to a
-# prompt-provided schema plus local validation.
-MODEL_SUPPORTS_JSON_SCHEMA = {
-    "nvidia/nemotron-3.5-lightning:free": False,
-}
 
-PROMPT_VERSION = "batch-v3"
+PROMPT_VERSION = "batch-free-v2"
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 # S3: hard batch floor — every LLM call (steady state OR salvage retry) must
 # carry at least MIN_BATCH_SIZE listings; one-listing-per-call is a defect
@@ -384,23 +377,18 @@ class BatchClient:
             "max_tokens": max_tokens,
             "reasoning": {"enabled": False},
             "messages": [
-                {"role": "system", "content": system},
+                {
+                    "role": "system",
+                    "content": system + "\n\nReturn one JSON object matching this output schema:\n"
+                    + json.dumps(schema, ensure_ascii=False),
+                },
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
             ],
         }
-        if MODEL_SUPPORTS_JSON_SCHEMA.get(self.model, False):
-            body["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "batch_extraction", "strict": True, "schema": schema,
-                },
-            }
-        else:
-            body["messages"][0]["content"] += (
-                "\n\nReturn one JSON object matching this complete output JSON Schema. "
-                "The application will validate each result locally.\n"
-                "```json\n" + json.dumps(schema, ensure_ascii=False, indent=2) + "\n```"
-            )
+        body["messages"][0]["content"] += (
+            "\n\nReturn one JSON object matching this output schema:\n"
+            + json.dumps(schema, ensure_ascii=False)
+        )
         req = urllib.request.Request(
             OPENROUTER_URL,
             data=json.dumps(body).encode(),
@@ -1420,9 +1408,6 @@ def main(argv=None) -> int:
     # S3: one-listing-per-call is a defect, not an option — floor the batch size
     if args.batch_size < MIN_BATCH_SIZE:
         ap.error(f"--batch-size must be >= {MIN_BATCH_SIZE} (batch discipline: never one listing per call)")
-    if args.model not in MODEL_PRICES:
-        ap.error(f"--model {args.model!r} is not an authorized free endpoint. "
-                 f"Allowed free models: {', '.join(MODEL_PRICES)}")
 
     if args.files:
         paths = [p for p in args.files.split(",") if p]

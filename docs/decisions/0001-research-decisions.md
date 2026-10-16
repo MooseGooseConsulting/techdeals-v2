@@ -11,7 +11,9 @@
 **Decision: Instructor (Python)**
 
 - `Iterable[T]` for many-items-per-call; `BatchProcessor` for provider-native batch APIs (~50% discount)
-- Works with any OpenAI-compatible endpoint (OpenRouter, LiteLLM, Kilo gateway)
+- Protocol research covered OpenAI-compatible endpoints; the configured default
+  is `nvidia/nemotron-3.5-lightning:free` through OpenRouter. Use free models only;
+  no paid model is configured.
 - Pydantic validation + auto-retry handles cheap model quirks
 - 3M+ downloads/month, actively maintained (Aug 2026)
 - DELM (U Chicago, wraps Instructor with checkpointing/cost-tracking) worth monitoring — too young today (11 stars)

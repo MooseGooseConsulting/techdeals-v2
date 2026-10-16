@@ -1616,7 +1616,6 @@ dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
-    { name = "python-dotenv" },
     { name = "rich" },
 ]
 
@@ -1638,7 +1637,6 @@ requires-dist = [
     { name = "pydantic-settings" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
-    { name = "python-dotenv" },
     { name = "rich" },
     { name = "ruff", marker = "extra == 'dev'" },
 ]

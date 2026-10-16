@@ -6,17 +6,16 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Runtime settings from process environment, supplied by Doppler when run."""
 
     neon_database_url: str
     openrouter_api_key: str = ""
+    # Optional compatible gateway settings.
     kilo_gateway_api: str = ""
     kilo_code_api_key: str = ""
-    llm_model: str = "google/gemini-3.8-flash"
+    llm_model: str = "nvidia/nemotron-3.5-lightning:free"
     llm_batch_size: int = 20
     log_level: str = "INFO"
-
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @property
     def llm_base_url(self) -> str:

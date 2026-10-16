@@ -2,7 +2,8 @@
 
 Key design constraints from the brief:
 - NEVER one listing per call. Batching is a requirement, not an optimization.
-- Works with any OpenAI-compatible endpoint (OpenRouter, Kilo gateway, LiteLLM).
+- Defaults to free Nemotron through OpenRouter. Its schema is included in the
+  prompt and validated locally because the endpoint does not support JSON mode.
 - Records model + prompt version + cost per batch.
 - Pydantic validation + auto-retry handles cheap model quirks.
 """
@@ -88,7 +89,7 @@ async def extract_batch(
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key,
         ),
-        mode=instructor.Mode.JSON,
+        mode=instructor.Mode.MD_JSON,
     )
 
     start_time = time.monotonic()
