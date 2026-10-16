@@ -293,8 +293,20 @@ response bytes were not retained by the current client. The source report and
 review-comment snapshots are historical evidence, not current merge/readiness
 claims; refresh exact heads before publication or mutation.
 
-Current work completed: repository/PR/issue inventory, reviewer feedback triage,
-two isolated local documentation-repair candidates, and this draft. Pending:
-full PR implementation review, corrected publication and consolidation,
-independent verification of the proposed sequence, then Step 2. Nothing here
-claims the repair candidates were pushed, PRs merged, or production improved.
+Execution checkpoint, 2026-10-16: the former personal repository was transferred
+into the organization with its original identity and history. Its three open
+issues were transferred into canonical issues #16–#18. The plan is published
+as PR #15; corrected heads for the imported PRs have been pushed, and repaired
+review threads were resolved after verification. Dependency PRs #1 and #11 and
+audit PR #6 have merged. Fresh feedback on the remaining heads is being handled
+before their merges and canonical consolidation. This is a dated checkpoint,
+not a live status feed; follow the linked PRs for current heads and state.
+
+The latest intake repair now accepts only explicit timezone-aware
+`capture_metadata.fetched_at`. None of the 263 staged normalized Shopify, Reddit
+and GovDeals fixtures proves an original fetch time; generic update/end dates
+are rejected with notices and the raw artifacts remain. Curated human scoring
+rows are also excluded as capture input. Completing PR review does not complete
+incomplete-evidence intake, semantic parsing, field review or useful query
+acceptance; those remain in issue #17. Both repositories remain active, and no
+archival is planned. Production has not been changed.

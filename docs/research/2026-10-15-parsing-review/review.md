@@ -42,3 +42,7 @@ Resolver confidence values are constants in branches (0.9 or 0.6), not calibrate
 ## Additional bundle interpretation discrepancy
 
 Results `800121149027` and `366575148211` describe each displayed price as buying one motherboard-and-CPU bundle, but mark both component lines `separately_purchasable: true`. Those flags contradict the stated purchase scope. They require checking against the source and correcting through the full writer/query path; these saved JSON results do not demonstrate that separate offers were actually published. The five-field scorer does not check purchaseability.
+
+## Timestamp provenance limitation found in PR review
+
+The existing source wrappers copy Shopify `updated_at`, Atom `<updated>` and GovDeals auction-end dates into a generic `timestamp`. The standalone engine interprets that field as fetched_at and economic observation time. These wrappers and the diagnostic fixtures therefore do not establish genuine fetch or price-observation dates. Their text remains useful for parsing diagnostics, but their recorded dates must not establish freshness or price history. The source-collection plan now requires this provenance to be corrected or marked unknown before claiming source or temporal coverage.
