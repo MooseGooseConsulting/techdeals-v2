@@ -37,6 +37,7 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free"
@@ -460,7 +461,15 @@ def sha256_hex(s: str) -> str:
 
 
 def iso_or_now(payload: dict, path: str | None = None) -> str:
-    ts = payload.get("timestamp") or payload.get("fetched_at") or payload.get("capture_time")
+    # A source's `timestamp` may describe an event (for GovDeals, auction close),
+    # not when this capture was fetched. Prefer explicit capture provenance.
+    capture_meta = payload.get("capture_metadata")
+    ts = (capture_meta.get("fetched_at") if isinstance(capture_meta, dict) else None)
+    ts = ts or payload.get("fetched_at") or payload.get("capture_time")
+    # Legacy capture files use `timestamp` as their fetch time. GovDeals does
+    # not: its adapter's timestamp is the auction end date.
+    if not ts and payload.get("domain") != "govdeals":
+        ts = payload.get("timestamp")
     if isinstance(ts, str):
         try:
             dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -503,7 +512,7 @@ def as_decimal(s) -> str | None:
 # "2x 20TB WD Gold $150 each". The count must lead the line. Chassis words
 # keep a configured-server sentence from being read as a lot of parts.
 _LOT_LINE = re.compile(
-    r"(?i)^\s*(?P<n>\d+)\s*x\b(?P<body>[^\n]{0,160}?)\$\s*(?P<amt>\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)"
+    r"(?i)^\s*(?P<n>\d+)\s*x\b(?P<body>[^\n]{0,160}?)\$\s*(?P<amt>\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)(?![\d,.])"
     r"\s*(?P<each>\b(?:each|per|ea)\b|/ea)?"
 )
 _NOT_A_LOT = re.compile(r"(?i)\b(server|chassis|motherboard|poweredge|supermicro|proliant|barebone)\b")
@@ -571,7 +580,7 @@ def _amount_equal(left, right: str) -> bool:
     b = as_decimal(str(right).replace(",", ""))
     if a is None or b is None:
         return False
-    return float(a) == float(b)
+    return Decimal(a) == Decimal(b)
 
 
 def _lot_phrase(description: str, line_label: str, stated_qty, amount) -> dict | None:
@@ -596,11 +605,9 @@ def _lot_phrase(description: str, line_label: str, stated_qty, amount) -> dict |
     if not found:
         return None
     found.sort(key=lambda row: row[0], reverse=True)
-    if len(found) > 1 and found[0][0] == 0:
+    if found[0][0] == 0:
         return None
     overlap, each, text = found[0]
-    if len(found) > 1 and overlap == 0:
-        return None
     return {"each": each, "text": text}
 
 
@@ -626,6 +633,15 @@ def apply_source_price_basis(description: str, line_label: str, stated_qty, po: 
                  "amount left undivided")
     po["basis_note"] = (note + " " if note else "") + extra
     return extra
+
+
+def source_description(payload: dict) -> str:
+    """Return the first non-empty supported source-description field."""
+    for key in (*FIELD_SYNONYMS["description"], "body_html"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return ""
 
 
 def validate_result(res: dict, fallback_label: str | None = None) -> dict:
@@ -1188,12 +1204,8 @@ def build_batch_doc(batch: list[dict], model: str, parser_name: str, cost_usd: f
                 })
             if g["price"] is not None:
                 po, drop_reason = price_observation(l, path, g)
-                description = ""
                 payload = l.get("payload") or {}
-                if isinstance(payload.get("description"), str):
-                    description = payload["description"]
-                elif isinstance(payload.get("body_html"), str):
-                    description = payload["body_html"]
+                description = source_description(payload)
                 relabel = None
                 if po is not None and len(g["lines"]) == 1:
                     relabel = apply_source_price_basis(
@@ -1286,8 +1298,16 @@ def run_batch_call(client: BatchClient, batch: list[dict], max_tokens: int,
             "latency_s": meta["latency_s"], "truncated": True, "status": "truncated_split",
         }
         append_ledger(ledger_path, truncated_row)
-        if len(batch) == 1:
-            failed = {batch[0]["client_id"]: "output truncated; no result for this listing"}
+        if len(batch) < MIN_BATCH_SIZE * 2:
+            failed = {
+                l["client_id"]: (
+                    "output truncated; cannot split below the minimum batch size "
+                    f"({MIN_BATCH_SIZE})"
+                )
+                for l in batch
+            }
+            truncated_row["status"] = "truncated_below_split_floor"
+            truncated_row["failed_ids"] = sorted(failed)
             return {}, failed, truncated_row
         mid = len(batch) // 2
         lres, lfail, lrow = run_batch_call(client, batch[:mid], max_tokens, ledger_path, f"{batch_index}L", retries_left)

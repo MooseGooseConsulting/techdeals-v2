@@ -31,7 +31,8 @@ def project(asset: dict, bidbox: dict) -> dict:
         "title": asset.get("assetShortDesc") or "",
         "description": description,
         "url": f"https://www.govdeals.com/asset/{account}/{asset_id}",
-        "timestamp": bidbox.get("assetAuctionEndDateUTC"),
+        # This is an auction event date, not the capture's fetch timestamp.
+        "auction_end_date": bidbox.get("assetAuctionEndDateUTC"),
         "domain": "govdeals",
         "currency": asset.get("currencyCode"),
         "current_bid": bid,
