@@ -1,4 +1,6 @@
-## Verified findings
+# Cluster price and history evidence
+
+Historical October 2026 audit; counts below are separate query snapshots, not current inventory.
 
 Read-only SELECT investigation against live-cluster `market_live` and local `techdeals_work`; no repository/production changes or checks.
 
@@ -25,7 +27,7 @@ price_usd: 160.00
 Matching snapshot `2ed5d5c3-fe41-510f-ab01-a6dad52609c4` has the same fields. Evidence artifact `97a5a099-3066-4e1f-8db6-6d69dca042b1`, Atom content, 191448 bytes, Garage URI:
 `s3://techdeals-artifacts/fetch/sha256/79/799ebf80925e73ab825be1bf9b2217d23edf067f9470c6abd650c6cdb05ce610.bin`.
 
-### 2. Additional unavailable encoding missed: `out_of_stock`, not just parent's `outofstock`
+### 2. Unavailable encodings leak into current deals
 
 **Database:** `market_live`. **Confidence:** high.
 
@@ -33,7 +35,17 @@ Two of 19 current hardwareswap deals have **`out_of_stock`** and source lines ex
 - Observation `d08f17d9-3cfb-58f5-815e-1ae72846d810`, offer `677d0faf-32e9-5648-b85c-59be852105af`, $370, RTX 4060 Ti.
 - Observation `d03ae962-dd9d-5ef5-8895-19cc39f1c5c9`, offer `d8832cc6-c604-58ea-824c-aa2892901343`, $0.10 mispriced RX 7900XTX; raw source line ends `$800-sold`.
 
-Both offers remain `listing_status='active'`, eligible true, unavailable_at NULL. API stock regex misses underscores. Thus total confirmed API unavailable encodings are **1028/3311**, comprising Central Computers 940, Water Panther 59, ServerPartDeals 27, hardwareswap 2. Parent already owns the first 1026.
+Both offers remain `listing_status='active'`, eligible true, unavailable_at NULL. API stock regex misses underscores. Thus total confirmed API unavailable encodings are **1028/3311**, comprising Central Computers 940, Water Panther 59, ServerPartDeals 27, hardwareswap 2. The stored `api.current_deals` definition excludes
+`(out of stock|unavailable|sold out|expired)` case-insensitively; neither
+`outofstock` nor `out_of_stock` matches that expression.
+
+A retailer example is observation `b6b39cc0-9cfe-5f67-bd5e-502c38b9a5b0`, offer
+`0d08b78a-b577-576a-a2fe-8b912817100a`, USD 763, observed October 13. Both stored
+observation and offer say `outofstock`; the retained payload says
+`"availability": "OutOfStock"`. Its source URL is
+[the retained Water Panther listing URL](https://www.waterpanther.com/products/refurbished-6-4tb-sas-4-24gb-s-2-5-ssd-for-dell-poweredge-servers-enterprise-drive-in-13g-tray).
+This is stored-state leakage, not independent verification of current source
+stock or a failed collection.
 
 No API observation is older than its category freshness interval (**0/3311**). No current offer has eligibility false or unavailable_at set (**0/3311** each). Age alone is not demonstrated failure.
 
@@ -96,7 +108,18 @@ Both DBs: every market currency is USD; zero NULL prices, zero negative prices. 
 
 ## Reproducible SQL
 
-Run per DB using mandated read-only options. Queries below are the successful queries underlying findings (grouped compactly).
+Run per database with read-only transactions and bounded query/lock timeouts.
+The original audit used the `techdeals` role with credentials supplied by Doppler
+`homelab/dev`; no credentials are stored here. Apply these options to the
+process receiving the injected database environment:
+
+```bash
+export PGOPTIONS='-c default_transaction_read_only=on -c statement_timeout=20000 -c lock_timeout=2000'
+psql -X -v ON_ERROR_STOP=1
+```
+
+Queries below underlie the historical findings; rerunning them observes a new
+snapshot.
 
 ```sql
 -- Both DBs: population, currencies, missing price/run data.
@@ -109,6 +132,15 @@ SELECT s.source_name,count(*) n,
 FROM core.market_observations m
 JOIN source.sources s USING(source_id)
 GROUP BY 1 ORDER BY n DESC;
+
+-- market_live: stored current-deal filter and retailer stock-leak example.
+SELECT pg_get_viewdef('api.current_deals'::regclass, true);
+SELECT d.observation_id, d.offer_id, d.price_usd, d.availability,
+       o.availability_raw, m.raw_payload
+FROM api.current_deals d
+JOIN core.offers o USING (offer_id)
+JOIN core.market_observations m USING (observation_id)
+WHERE d.observation_id = 'b6b39cc0-9cfe-5f67-bd5e-502c38b9a5b0';
 
 -- market_live: quantity errors, history/current prevalence, exact retained source lines.
 SELECT m.offer_id,count(*) observations,min(m.price_usd),max(m.price_usd),

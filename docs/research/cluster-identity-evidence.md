@@ -1,4 +1,6 @@
-## Identity/configuration audit: live PostgreSQL databases
+# Cluster identity and configuration evidence
+
+Historical October 2026 audit; counts below are not current inventory.
 
 Investigated **`market_live` and `techdeals_work` on `pg18-core-db.moosegoose.xyz`**, SELECT-only with required read-only/timeouts. No repository or production changes. Counts below are separate query snapshots; live ingestion continued during investigation.
 
@@ -148,12 +150,13 @@ Also **57/4,695 `techdeals_work` rack-server items** are explicitly titled lots 
 - Work variants: **10,078**, one per item; **10,044** are `legacy_item_id` wrappers, **0 orphan items**. **712 category mismatches** consist of 695 `memory` items retaining variant category `ddr5_rdimm`, 14 SSD/3 HDD items retaining `deal_item`. These are observable stale category representations; not evidence of 712 incorrect product merges.
 - No conclusion was drawn from partial collection status.
 
-### Parent’s tray example
+### Tray compatibility mismatch
 
-Confirmed offer `0d08b78a-b577-576a-a2fe-8b912817100a` points to item `33fb7333-cb85-5a3f-9cb0-88600d3e17e5`: offer title **13G Tray**, item canonical name **14G Tray**. Key is `ssd|water-panther|sas-4-s-2-5-for|6.4E+3gb`; there is no variant. This demonstrates lost compatibility grain in stored representation, alongside the parent’s raw observation evidence—not duplicate entity IDs.
+Confirmed offer `0d08b78a-b577-576a-a2fe-8b912817100a` points to item `33fb7333-cb85-5a3f-9cb0-88600d3e17e5`: offer title **13G Tray**, item canonical name **14G Tray**. Key is `ssd|water-panther|sas-4-s-2-5-for|6.4E+3gb`; there is no variant. This demonstrates lost compatibility grain in stored representation, alongside the [retained observation evidence](cluster-price-evidence.md#2-unavailable-encodings-leak-into-current-deals). It does not establish duplicate entity IDs.
 
 ## Exact reproducibility SQL
 
+Use the [read-only connection options](cluster-price-evidence.md#reproducible-sql).
 Run the common queries in **both databases**. Memory legacy queries are explicitly database-specific.
 
 ```sql
