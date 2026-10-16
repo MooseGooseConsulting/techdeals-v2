@@ -151,3 +151,87 @@ def test_ingest_explains_zero_eligible_rows_without_connecting(monkeypatch, caps
     output = capsys.readouterr().out
     assert "Eligible captures: 0" in output
     assert "No rows attempted" in output
+
+
+class _QueryConnection:
+    def __init__(self, *, error=None, rows=()):
+        self.error = error
+        self.rows = list(rows)
+        self.closed = False
+
+    def execute(self, _sql):
+        if self.error:
+            raise RuntimeError(self.error)
+        return SimpleNamespace(
+            fetchall=lambda: self.rows,
+            description=[("name",)] if self.rows else [],
+        )
+
+    def close(self):
+        self.closed = True
+
+
+def test_query_returns_nonzero_on_connection_failure(monkeypatch, capsys) -> None:
+    from techdeals.db import connection
+
+    monkeypatch.setattr(
+        connection, "get_connection", lambda: (_ for _ in ()).throw(RuntimeError("offline"))
+    )
+    assert cli._run_query("accounting") == 1
+    assert "Database connection failed" in capsys.readouterr().out
+
+
+def test_query_returns_nonzero_on_query_failure_and_closes_connection(monkeypatch, capsys) -> None:
+    from techdeals.db import connection
+
+    conn = _QueryConnection(error="missing view")
+    monkeypatch.setattr(connection, "get_connection", lambda: conn)
+    assert cli._run_query("accounting") == 1
+    assert conn.closed
+    assert "Query failed" in capsys.readouterr().out
+
+
+def test_main_exits_nonzero_for_query_failure(monkeypatch) -> None:
+    monkeypatch.setattr(cli.sys, "argv", ["techdeals", "query", "accounting"])
+    monkeypatch.setattr(cli, "_run_query", lambda _name: 1)
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 1
+
+
+class _AsyncAcquire:
+    async def __aenter__(self):
+        return object()
+
+    async def __aexit__(self, *_args):
+        return None
+
+
+class _AsyncPool:
+    def __init__(self):
+        self.closed = False
+
+    def acquire(self):
+        return _AsyncAcquire()
+
+    async def close(self):
+        self.closed = True
+
+
+def test_async_connection_pool_closes_when_generator_is_closed(monkeypatch) -> None:
+    from techdeals.db import connection
+
+    pool = _AsyncPool()
+
+    async def fake_pool():
+        return pool
+
+    monkeypatch.setattr(connection, "get_pool", fake_pool)
+
+    async def consume_then_close():
+        generator = connection.get_async_connection()
+        await anext(generator)
+        await generator.aclose()
+
+    asyncio.run(consume_then_close())
+    assert pool.closed

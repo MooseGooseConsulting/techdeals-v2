@@ -259,10 +259,10 @@ def load_liquidation_fixtures(source: str = "liquidation_com") -> Iterator[RawCa
 def load_rackrat_fixtures(source: str = "rackrat") -> Iterator[RawCapture]:
     """Load RackRat snapshot fixtures."""
     candidate_paths = [
-        REPO_ROOT / "corpus" / "fixture-zero" / "servers_read_v2.jsonl",
         REPO_ROOT / "corpus" / "rackrat" / "captures.jsonl",
         REPO_ROOT / "corpus" / "rackrat" / "snapshot.json",
         REPO_ROOT / "fixtures" / "rackrat.json",
+        REPO_ROOT / "corpus" / "fixture-zero" / "servers_read_v2.jsonl",
     ]
     path = next((p for p in candidate_paths if p.exists()), None)
     if not path:

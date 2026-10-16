@@ -61,14 +61,30 @@ def test_stored_payload_preserves_non_json_raw_text_and_provenance() -> None:
     }
 
 
-def test_source_dates_are_not_misrepresented_as_fetch_times(capsys) -> None:
+def test_source_dates_are_not_misrepresented_as_fetch_times(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(loaders, "REPO_ROOT", tmp_path)
+    captures = tmp_path / "corpus/cell-a-shopify/captures/waterpanther"
+    captures.mkdir(parents=True)
+    (captures / "product.json").write_text(
+        '{"id":"water-1","updated_at":"2026-06-24T10:23:29Z"}\n'
+    )
     assert list(load_shopify_fixtures("waterpanther")) == []
     warning = capsys.readouterr().err
     assert "product updated_at" in warning
     assert "Raw artifact is preserved but not ingested" in warning
 
 
-def test_govdeals_auction_close_is_not_misrepresented_as_fetch_time(capsys) -> None:
+def test_govdeals_auction_close_is_not_misrepresented_as_fetch_time(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(loaders, "REPO_ROOT", tmp_path)
+    captures = tmp_path / "corpus/cell-d-govdeals/captures"
+    captures.mkdir(parents=True)
+    (captures / "lot.json").write_text(
+        '{"item_id":"lot-1","assetAuctionEndDateUTC":"2026-06-24T10:23:29Z"}\n'
+    )
     assert list(load_govdeals_fixtures()) == []
     warning = capsys.readouterr().err
     assert "capture_metadata.fetched_at" in warning
@@ -191,7 +207,13 @@ def test_reddit_atom_uses_explicit_fetch_metadata_and_exact_xml_bytes(
     assert capture.checksum == hashlib.sha256(source_bytes).hexdigest()
 
 
-def test_captures_without_source_timestamp_are_skipped_with_disposition(capsys) -> None:
+def test_captures_without_source_timestamp_are_skipped_with_disposition(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(loaders, "REPO_ROOT", tmp_path)
+    captures = tmp_path / "corpus/fusionww"
+    captures.mkdir(parents=True)
+    (captures / "product.json").write_text('{"id":"fww-prod-001","updated_at":"2026-10-01"}\n')
     assert list(load_shopify_fixtures("fusionww")) == []
 
     warning = capsys.readouterr().err
@@ -199,9 +221,33 @@ def test_captures_without_source_timestamp_are_skipped_with_disposition(capsys) 
     assert "Raw artifact is preserved but not ingested" in warning
 
 
-def test_human_verified_fixture_zero_rows_are_not_ingested_as_captures(capsys) -> None:
+def test_human_verified_fixture_zero_rows_are_not_ingested_as_captures(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(loaders, "REPO_ROOT", tmp_path)
+    curated = tmp_path / "corpus/fixture-zero"
+    curated.mkdir(parents=True)
+    (curated / "servers_read_v2.jsonl").write_text('{"id":"score-1"}\n')
     assert list(load_rackrat_fixtures()) == []
 
     warning = capsys.readouterr().err
     assert "human-verified scoring records" in warning
     assert "original raw artifacts remain in corpus/fixture-zero/raw/" in warning
+
+
+def test_rackrat_capture_takes_precedence_over_scoring_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(loaders, "REPO_ROOT", tmp_path)
+    curated = tmp_path / "corpus/fixture-zero"
+    curated.mkdir(parents=True)
+    (curated / "servers_read_v2.jsonl").write_text('{"id":"score-1"}\n')
+    rackrat = tmp_path / "corpus/rackrat"
+    rackrat.mkdir(parents=True)
+    (rackrat / "snapshot.json").write_text(
+        '{"capture_metadata":{"fetched_at":"2026-10-01T12:30:00Z"},'
+        '"listings":[{"id":"rack-1","url":"https://example.test/rack-1"}]}\n'
+    )
+
+    capture = next(load_rackrat_fixtures())
+    assert capture.source_listing_id == "rack-1"

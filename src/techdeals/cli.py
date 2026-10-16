@@ -86,7 +86,9 @@ def main() -> None:
         if len(sys.argv) < 3:
             console.print("Available queries: available, history, lots, quarantine, accounting")
             return
-        _run_query(sys.argv[2])
+        result = _run_query(sys.argv[2])
+        if result != 0:
+            sys.exit(result)
     else:
         console.print(f"[red]Unknown command: {command}[/red]")
         sys.exit(1)
@@ -162,19 +164,19 @@ async def _run_ingest() -> int:
         conn.close()
 
 
-def _run_query(name: str) -> None:
+def _run_query(name: str) -> int:
     """Run a predefined query."""
     from techdeals.db.connection import get_connection
 
     if name not in QUERY_SQL:
         console.print(f"[red]Unknown query: {name}. Options: {', '.join(QUERY_SQL.keys())}[/red]")
-        return
+        return 2
 
     try:
         conn = get_connection()
     except Exception as e:
         console.print(f"[red]Database connection failed: {e}[/red]")
-        return
+        return 1
 
     try:
         result = conn.execute(QUERY_SQL[name])
@@ -183,7 +185,7 @@ def _run_query(name: str) -> None:
 
         if not rows:
             console.print("[yellow]No results.[/yellow]")
-            return
+            return 0
 
         table = Table(title=f"Query: {name}")
         for col in columns:
@@ -193,8 +195,10 @@ def _run_query(name: str) -> None:
 
         console.print(table)
         console.print(f"\n{len(rows)} rows returned.")
+        return 0
     except Exception as e:
         console.print(f"[red]Query failed: {e}[/red]")
+        return 1
     finally:
         conn.close()
 
