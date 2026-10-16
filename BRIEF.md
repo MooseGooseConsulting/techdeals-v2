@@ -5,6 +5,12 @@ This is the authoritative briefing for the v2 rebuild. It exists so that any age
 we will know we arrived, and where to find the raw material. Read this before
 planning anything.
 
+Current model policy (owner instruction, 2026-10-15): only
+`nvidia/nemotron-3.5-lightning:free` through OpenRouter is configured. Use free
+models only. Earlier references below to
+cheap models or alternate gateways are historical context, not authorization
+to configure or call them.
+
 ---
 
 ## 0. Hard Parts & Requirements (owner-distilled, read first)
@@ -15,7 +21,7 @@ planning anything.
    eventually be sorted, queried, and tallied for analysis: RAM, SSDs, enterprise
    HDDs, servers, U.3 drives, rackmount inference boxes, used gear.
 2. **Parsing is the bottleneck, not scraping** — no regex parser will ever be
-   accurate enough on free-text listings; a small/cheap LLM is required.
+   accurate enough on free-text listings; a free LLM is required.
 3. **Multi-item postings** — one URL containing 8–10 items (a configured server);
    contents must be broken apart and the total cost apportioned across them,
    with the basis of any apportionment recorded.
@@ -33,8 +39,9 @@ planning anything.
    to start. The old scrapers keep running where they are. If live capture is ever
    needed here, thin fetchers are written fresh, reusing the old scrapers' logic
    as reference only. The problem to solve is everything after the fetch.
-2. **Batched, cheap LLM parsing** — many listings per call, never one at a time;
-   free/cheap endpoints are fine (OpenRouter, Kilo gateway, LiteLLM — see §6).
+2. **Batched, free-model LLM parsing** — many listings per call, never one at a
+   time. Use free models only; the configured endpoint is
+   `nvidia/nemotron-3.5-lightning:free` through OpenRouter.
 3. **Research before building** — check what databases, processing tooling, and
    existing projects/libraries already do this before inventing anything.
 4. **Greenfield the schema on Neon** — redesign from scratch; do not literally
@@ -56,8 +63,9 @@ planning anything.
   varied set of real shapes.
 - **Store**: Neon Postgres, scratch project (credentials in Doppler
   `apps-data/dev`). Production and the existing cluster are never touched.
-- **Parser**: small/cheap LLM over OpenRouter / Kilo gateway / LiteLLM (keys in
-  Doppler `ai-automation/dev` and `homelab/dev`), invoked in batches.
+- **Parser**: `nvidia/nemotron-3.5-lightning:free` over OpenRouter, invoked in
+  batches. Inject `OPENROUTER_API_KEY` from Doppler; no paid model or alternate
+  model/provider configuration is enabled by default.
 - **Explicitly NOT build targets**: the old schema, the old identity graph, old
   application code. This repo starts as an EMPTY FOLDER — no code is copied from
   TechdealsHandoff. The old repo is read-only reference (fixtures, ADRs, issues,
@@ -114,8 +122,8 @@ Direction is settled; sequencing matters. Each phase feeds the next.
    out-of-scope item) written down as requirements, not discovered as bugs.
 2. **Posting-first schema on Neon scratch** — everything is a *Posting* (see §4).
    Build and iterate on Neon; production and the existing cluster are untouched.
-3. **Batched LLM extraction engine** — small/cheap model, many listings per call.
-   NEVER one listing per call. Free endpoints are fine (see §6).
+3. **Batched LLM extraction engine** — free model, many listings per call.
+   NEVER one listing per call. Use free endpoints only (see §6).
 4. **Acceptance is folded in, not a separate harness** — there is NO standalone
    test-framework mission. Phases 2–3 are verified by running a small set of real
    captured listings across source shapes (§5) through the pipeline and checking
@@ -141,7 +149,7 @@ pipeline and querying the result must show ALL of these:
    resolution is a separate, re-runnable, confidence-scored pass that never
    rewrites history (`offer_key` stable across parser replays).
 6. **Batch economics**: the engine consumes listings in configurable batches per
-   LLM call (target: dozens per call), runs on free/cheap endpoints, and records
+   LLM call (target: dozens per call), runs on free endpoints only, and records
    model + prompt version + cost per batch.
 7. **Dynamic categories**: adding a category is inserting data, not migrating
    schema.
@@ -360,14 +368,10 @@ If an ingestion step cannot show which query it feeds, it does not get built.
   org picker). Record project/branch IDs here on first write — done. Incluster
   DSNs (`DBHUB_PG_DSN_*` in `homelab/dev`) do NOT resolve off-cluster.
   Never print secret values; `--only-names` to locate, `doppler run` to inject.
-- **LLM endpoints**: Doppler `ai-automation/dev` has OpenRouter, Kilo
-  (`KILO_CODE_API_KEY`, `KILO_GATEWAY_API`), Gemini, Groq, DeepSeek, Mistral,
-  Anthropic, OpenAI. `homelab/dev` additionally has LiteLLM gateway keys — a
-  self-hosted proxy that may be the cheapest batch path. OpenRouter key verified
-  live 2026-10-12 (HTTP 200 on /models); free/near-free batch candidates with 1M
-  context confirmed in catalog: `qwen/qwen3.8-omni-flash` ($0.15/MTok prompt),
-  `deepseek/deepseek-v4.1-flash:batch` tier. Prefer free/cheap tiers; record cost
-  per batch regardless.
+- **LLM endpoint**: use `OPENROUTER_API_KEY` from Doppler `ai-automation/dev`
+  with the configured free endpoint above. Other provider credentials may exist
+  in the secret manager but do not authorize their use here. Paid historical
+  pilots are evidence only; there is no paid model or automatic model fallback.
 - **Local tooling**: `psql` 18.6, `jq`, `curl`, `python3`, `uv` present.
 - **Hard constraint**: do NOT touch the existing production cluster or the old
   databases. Neon is the sandbox.

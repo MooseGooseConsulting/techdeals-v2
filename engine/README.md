@@ -11,6 +11,17 @@ unknown scalars under a byte budget, so it works on any capture that carries
 title/price/specs — not just eBay servers. No vendor-specific prompt hacks
 (the anti-overfit rule: fixture-zero is one cell).
 
+## Current free-model policy
+
+Use free models only. Both the standalone engine and packaged parser default to
+`nvidia/nemotron-3.5-lightning:free` through OpenRouter. The example environment
+uses the same model. No paid model is configured.
+
+The free endpoint does not support `response_format`; its schema is included
+in the prompt and existing local parsing/validation remains in use. This policy
+does not establish semantic parsing quality. The paid pilot measurements and
+results retained below are historical evidence, not active configuration.
+
 ## How to run
 
 ```bash
@@ -88,11 +99,11 @@ Dependencies: python3 stdlib + `psql` on PATH.
 - Latency is the real tax: bigger batches are fewer calls but longer calls
   (~3 min for 20 listings on deepseek-flash-tier models). For wall-clock-bound
   ingest, run batches concurrently; for cost-bound ingest, bigger is better.
-- Free-tier routers sometimes ignore `response_format` — the salvage path +
-  per-endpoint failure counters in the ledger make that an evidenced choice,
-  not a one-time bet.
+- The current free endpoint receives its schema through the prompt rather than
+  an unsupported `response_format` parameter. Local parsing, validation and
+  failure accounting still apply.
 
-## Cost-per-listing math
+## Historical paid-pilot cost-per-listing math
 
 `cost = (prompt_tokens × prompt_rate + completion_tokens × completion_rate) / 1e6`
 per call, computed from the response `usage` and written into
