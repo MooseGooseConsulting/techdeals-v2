@@ -2,9 +2,12 @@
 
 Status: draft for owner review, 2026-10-15. Planning remains separate from implementation and deployment. The former personal
 repository has been transferred into the organization as `techdeals-v2-review-import`;
-production has not been changed. PR completion is in progress.
+production has not been changed. Remaining implementation and merges are held
+for the system-level assessment described in the [project goal](../project-goal.md).
+Select the required design and retain/replace/defer/remove dispositions before
+further repairs. PR completion can mean superseding an unnecessary implementation.
 
-## Purpose and authority
+## Purpose and design basis
 
 TechDeals must turn heterogeneous source evidence into useful hardware buying
 answers: what can be bought, what configuration is included, what is comparable,
@@ -12,10 +15,14 @@ what it costs now and over time, what a lot contains and may be worth, and what
 remains unknown. Valid JSON, stored rows, green checks, and heuristic numbers do
 not establish that these answers are correct.
 
-The owner-authored [production North Star](https://github.com/MooseGooseConsulting/TechdealsHandoff/blob/main/docs/NORTH_STAR.md)
-defines the product. [BRIEF.md](../../BRIEF.md) defines the v2 experiment. This
-document sequences work under those authorities; it does not create a new
-product scope or authorize replacing the production system.
+The owner's stated goals and latest instructions govern this work. The
+[project goal and design basis](../project-goal.md) records the clarified goal
+and supersedes this draft's earlier assumption that production documents define
+the target architecture. Production documents and [BRIEF.md](../../BRIEF.md) are
+reference material to assess against source evidence and useful answers.
+Neither production nor the current v2 schema is presumed correct. The PR review
+inventory below is historical tracking, not an instruction to repair every file
+or merge every implementation before making the architectural decision.
 
 ## Repository topology and consolidation
 
@@ -48,7 +55,16 @@ replace organization-side contract validation/tests and CLI wiring. Those
 changes require explicit review, not mechanical conflict resolution. Existing
 organization CLI wiring must itself be checked against #14's module removals.
 
-## Step 1: review and disposition all existing PRs before new implementation
+## Step 1: establish the required design before further implementation
+
+Use the [project goal](../project-goal.md) and the real buying questions in Step 2
+to select one capture-to-answer path. Record a retain, replace, defer, or remove
+disposition for the relevant modules and PRs. Neither an existing implementation
+nor a valid review finding obliges us to retain and repair that implementation.
+Choose the representation against source meaning and useful answers before
+deciding how to incorporate it into the main project.
+
+### Historical PR review inventory
 
 The PR table records the initial review heads. The plan itself is canonical
 [PR #15](https://github.com/MooseGooseConsulting/techdeals-v2/pull/15), reviewed as
@@ -77,9 +93,10 @@ It claims an integrated offline/LLM pipeline and database checks, but changes th
 older schema/application path. Compare it with organization #10/#14 and #4 before
 retaining anything. Its commit description is reported work, not verified outcome.
 
-Exit: every PR/branch has a documented keep/revise/supersede disposition, valid
-feedback has a concrete patch and validation, and review evidence is preserved.
-Do not equate thread count zero with a complete review.
+Exit: the required behavior, selected path, module/PR dispositions and proof
+cases are explicit. Preserve review evidence; repair valid defects in retained
+work and supersede unnecessary implementations. Zero open review threads does
+not establish a complete or useful system.
 
 ## Step 2: establish the failures against real application questions
 
@@ -208,8 +225,10 @@ the slice, not general correctness across all hardware.
 ## Step 4: broaden evidence and validate valuation separately
 
 After the capture-to-query path works, execute the corrected source-collection
-plan in source slices. Inventory coverage across the twelve North Star categories;
-prove category-neutral behavior and additional category-specific facts with real
+plan in source slices. Inventory coverage across the hardware and source shapes
+required by the owner's goals and actual inputs; existing production categories
+are reference material rather than a taxonomy to inherit. Prove general behavior
+and necessary category-specific facts with real
 inputs before claiming support. Keep the full source inventory, including
 [production issue #226](https://github.com/MooseGooseConsulting/TechdealsHandoff/issues/226),
 even when execution is staged. Record precise access/coverage gaps.
