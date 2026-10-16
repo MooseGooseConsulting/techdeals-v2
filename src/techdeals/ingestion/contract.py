@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 _uuid7_lock = __import__("threading").Lock()
 _uuid7_last_ts = 0
@@ -69,9 +69,9 @@ class RawCapture(BaseModel):
     """
 
     id: UUID = Field(default_factory=_uuid7)
-    source: str
+    source: str = Field(min_length=1)
     source_listing_id: str = Field(min_length=1)
-    url: str = Field(min_length=1)
+    url: str = ""
     fetched_at: datetime
     checksum: str = Field(description="SHA-256 of the raw payload")
     raw_payload: str
@@ -80,5 +80,18 @@ class RawCapture(BaseModel):
     )
     metadata: dict[str, Any] = Field(default_factory=dict)
     status: IngestionStatus = Field(default=IngestionStatus.raw)
+
+    @model_validator(mode="after")
+    def validate_source_url_status(self) -> RawCapture:
+        status = self.metadata.get("source_url_status")
+        if status not in (None, "present", "incomplete"):
+            raise ValueError("metadata.source_url_status must be present or incomplete")
+        if self.url and status == "incomplete":
+            raise ValueError("incomplete source URL metadata requires an empty url")
+        if not self.url and status != "incomplete":
+            raise ValueError("url must be non-empty unless metadata marks source_url_status=incomplete")
+        if not self.url and status == "present":
+            raise ValueError("present source URL metadata requires a non-empty url")
+        return self
 
     model_config = {"frozen": False}

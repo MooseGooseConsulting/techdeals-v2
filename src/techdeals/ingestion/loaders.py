@@ -4,31 +4,20 @@ Each loader reads real fixture files from the corpus and produces
 RawCapture objects ready for database insertion.
 
 The corpus is READ-ONLY. We never modify fixture files.
-
-These functions are the legacy loading path. They delegate to the
-adapter registry (``techdeals.adapters``) whenever a source has been
-migrated to a ``SourceAdapter`` subclass, and fall back to the original
-loader logic for sources that have not.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
+from urllib.parse import urlparse
 
-from techdeals.adapters import base as adapter_base
-from techdeals.adapters.base import SourceAdapter
 from techdeals.ingestion.contract import RawCapture
 
-
-def _registered_adapter(source: str) -> SourceAdapter | None:
-    """Return the registered adapter for a source, or None if unmigrated."""
-    try:
-        return adapter_base.get_adapter(source)
-    except KeyError:
-        return None
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]:
@@ -37,10 +26,6 @@ def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]
     Yields RawCapture objects from all fixture locations.
     Stops gracefully if a source directory doesn't exist.
     """
-    registered = set(adapter_base.list_sources())
-
-    yield from adapter_base.load_all(max_per_source=max_per_source)
-
     loaders = [
         ("waterpanther", load_shopify_fixtures),
         ("serverpartdeals", load_shopify_fixtures),
@@ -52,8 +37,6 @@ def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]
     ]
 
     for source, loader_func in loaders:
-        if source in registered:
-            continue
         try:
             source_count = 0
             for capture in loader_func(source=source):
@@ -70,14 +53,14 @@ def load_all_fixtures(max_per_source: int | None = None) -> Iterator[RawCapture]
 
 def load_shopify_fixtures(source: str) -> Iterator[RawCapture]:
     """Load Shopify-style product JSON fixtures."""
-    adapter = _registered_adapter(source)
-    if adapter is not None:
-        yield from adapter.load_fixtures()
-        return
-
-    base = Path(f"/home/coldaine/TechdealsHandoff/scripts/ingest/{source}/fixtures")
-    if not base.exists():
-        raise FileNotFoundError(f"Fixture directory not found: {base}")
+    candidate_bases = [
+        REPO_ROOT / "corpus" / "cell-a-shopify" / "captures" / source,
+        REPO_ROOT / "corpus" / source,
+        REPO_ROOT / "fixtures" / source,
+    ]
+    base = next((p for p in candidate_bases if p.exists()), None)
+    if not base:
+        raise FileNotFoundError(f"Fixture directory not found for shopify source: {source}")
 
     for json_file in sorted(base.glob("*.json")):
         data = json.loads(json_file.read_text())
@@ -93,33 +76,50 @@ def load_shopify_fixtures(source: str) -> Iterator[RawCapture]:
             if not isinstance(product, dict):
                 continue
 
-            product_id = str(product.get("id") or "") or json_file.stem
+            product_id = str(product.get("id", json_file.stem))
             raw_payload = json.dumps(product)
+            fetched_at = _capture_time(product)
+            if fetched_at is None:
+                _warn_missing_timestamp(source, product_id, json_file)
+                continue
+            reported_url = product.get("url", product.get("handle", ""))
+            parsed_url = urlparse(reported_url)
+            has_source_url = parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
+            artifact_locator = reported_url if parsed_url.scheme == "file" else None
+            source_url = reported_url if has_source_url else ""
 
             yield RawCapture(
                 source=source,
                 source_listing_id=product_id,
-                url=product.get("url")
-                or product.get("handle")
-                or f"file://{json_file}",
-                fetched_at=datetime.now(timezone.utc),
+                url=source_url,
+                fetched_at=fetched_at,
                 checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
                 raw_payload=raw_payload,
                 payload_format="json",
-                metadata={"file": str(json_file)},
+                metadata={
+                    "file": str(json_file),
+                    "timestamp_provenance": "capture_metadata.fetched_at",
+                    "source_url_status": "present" if has_source_url else "incomplete",
+                    **({"artifact_locator": artifact_locator} if artifact_locator else {}),
+                    **(
+                        {"reported_url_value": reported_url}
+                        if reported_url and not has_source_url and not artifact_locator
+                        else {}
+                    ),
+                },
             )
 
 
 def load_govdeals_fixtures(source: str = "govdeals") -> Iterator[RawCapture]:
     """Load GovDeals JSON fixtures (asset + bidbox pairs)."""
-    adapter = _registered_adapter(source)
-    if adapter is not None:
-        yield from adapter.load_fixtures()
-        return
-
-    base = Path("/home/coldaine/TechdealsHandoff/scripts/ingest/govdeals/fixtures")
-    if not base.exists():
-        raise FileNotFoundError(f"Fixture directory not found: {base}")
+    candidate_bases = [
+        REPO_ROOT / "corpus" / "cell-d-govdeals" / "captures",
+        REPO_ROOT / "corpus" / "govdeals",
+        REPO_ROOT / "fixtures" / "govdeals",
+    ]
+    base = next((p for p in candidate_bases if p.exists()), None)
+    if not base:
+        raise FileNotFoundError(f"Fixture directory not found for govdeals: {source}")
 
     for json_file in sorted(base.glob("*.json")):
         data = json.loads(json_file.read_text())
@@ -128,146 +128,225 @@ def load_govdeals_fixtures(source: str = "govdeals") -> Iterator[RawCapture]:
         # Extract identifiers
         account_id = data.get("accountId", "unknown")
         asset_id = data.get("assetId", json_file.stem)
-        source_listing_id = f"{account_id}_{asset_id}"
+        source_listing_id = str(data.get("item_id") or f"{account_id}_{asset_id}")
+        fetched_at = _capture_time(data)
+        if fetched_at is None:
+            _warn_missing_timestamp(source, source_listing_id, json_file)
+            continue
+        reported_url = data.get("url", "")
+        parsed_url = urlparse(reported_url)
+        has_source_url = parsed_url.scheme in {"http", "https"} and bool(parsed_url.netloc)
+        artifact_locator = reported_url if parsed_url.scheme == "file" else None
 
         yield RawCapture(
             source=source,
             source_listing_id=source_listing_id,
-            url=f"https://www.govdeals.com/asset/{asset_id}",
-            fetched_at=datetime.now(timezone.utc),
+            url=reported_url if has_source_url else "",
+            fetched_at=fetched_at,
             checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
             raw_payload=raw_payload,
             payload_format="json",
-            metadata={"file": str(json_file), "type": json_file.stem.split("_")[0]},
+            metadata={
+                "file": str(json_file),
+                "type": json_file.stem.split("_")[0],
+                "timestamp_provenance": "capture_metadata.fetched_at",
+                "source_url_status": "present" if has_source_url else "incomplete",
+                **({"artifact_locator": artifact_locator} if artifact_locator else {}),
+                **(
+                    {"reported_url_value": reported_url}
+                    if reported_url and not has_source_url and not artifact_locator
+                    else {}
+                ),
+            },
         )
 
 
 def load_reddit_fixtures(source: str = "reddit_homelabsales") -> Iterator[RawCapture]:
-    """Load Reddit Atom feed fixtures."""
-    adapter = _registered_adapter(source)
-    if adapter is not None:
-        yield from adapter.load_fixtures()
-        return
-
-    base = Path("/home/coldaine/TechdealsHandoff/scripts/ingest/reddit_homelabsales/fixtures")
-    if not base.exists():
-        raise FileNotFoundError(f"Fixture directory not found: {base}")
+    """Load Reddit Atom feed or JSON fixtures."""
+    candidate_bases = [
+        REPO_ROOT / "corpus" / "cell-c-reddit" / "captures",
+        REPO_ROOT / "corpus" / "reddit_homelabsales",
+        REPO_ROOT / "fixtures" / "reddit_homelabsales",
+    ]
+    base = next((p for p in candidate_bases if p.exists()), None)
+    if not base:
+        raise FileNotFoundError(f"Fixture directory not found for reddit: {source}")
 
     import xml.etree.ElementTree as ET
 
-    for xml_file in sorted(base.glob("*.xml")):
-        raw_payload = xml_file.read_text()
-        root = ET.fromstring(raw_payload)
-
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
-
-        for entry in root.findall("atom:entry", ns):
-            entry_id = entry.findtext("atom:id", "", ns)
-            link_elem = entry.find("atom:link", ns)
-            link = link_elem.get("href", "") if link_elem is not None else ""
-            title = entry.findtext("atom:title", "", ns)
-            updated = entry.findtext("atom:updated", "", ns)
-
-            # Serialize the entry back to XML for raw storage
-            entry_xml = ET.tostring(entry, encoding="unicode")
-
-            fetched_at = datetime.now(timezone.utc)
-            if updated:
-                try:
-                    fetched_at = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-                except ValueError:
-                    pass
-
-            source_listing_id = entry_id or hashlib.sha256(entry_xml.encode()).hexdigest()[:12]
+    for file_path in sorted(base.glob("*")):
+        if file_path.suffix == ".json":
+            data = json.loads(file_path.read_text())
+            raw_payload = json.dumps(data)
+            entry_id = str(data.get("id", file_path.stem))
+            fetched_at = _capture_time(data)
+            if fetched_at is None:
+                _warn_missing_timestamp(source, entry_id, file_path)
+                continue
+            url = data.get("url", f"https://reddit.com/comments/{entry_id}")
+            title = data.get("title", "")
 
             yield RawCapture(
                 source=source,
-                source_listing_id=source_listing_id,
-                url=link or f"urn:techdeals:{source}:{source_listing_id}",
+                source_listing_id=entry_id,
+                url=url,
                 fetched_at=fetched_at,
-                checksum=hashlib.sha256(entry_xml.encode()).hexdigest(),
-                raw_payload=entry_xml,
-                payload_format="atom",
-                metadata={"file": str(xml_file), "title": title},
+                checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
+                raw_payload=raw_payload,
+                payload_format="json",
+                metadata={
+                    "file": str(file_path),
+                    "title": title,
+                    "timestamp_provenance": "capture_metadata.fetched_at",
+                },
             )
+        elif file_path.suffix == ".xml":
+            raw_payload = file_path.read_text()
+            root = ET.fromstring(raw_payload)
+            ns = {"atom": "http://www.w3.org/2005/Atom"}
+
+            for entry in root.findall("atom:entry", ns):
+                entry_id = entry.findtext("atom:id", "", ns)
+                link_elem = entry.find("atom:link", ns)
+                link = link_elem.get("href", "") if link_elem is not None else ""
+                title = entry.findtext("atom:title", "", ns)
+                entry_xml = ET.tostring(entry, encoding="unicode")
+                fetched_at = _capture_time({})
+                if fetched_at is None:
+                    _warn_missing_timestamp(source, entry_id, file_path)
+                    continue
+
+                yield RawCapture(
+                    source=source,
+                    source_listing_id=entry_id,
+                    url=link,
+                    fetched_at=fetched_at,
+                    checksum=hashlib.sha256(entry_xml.encode()).hexdigest(),
+                    raw_payload=entry_xml,
+                    payload_format="atom",
+                    metadata={
+                        "file": str(file_path),
+                        "title": title,
+                        "timestamp_provenance": "capture_metadata.fetched_at",
+                    },
+                )
 
 
 def load_liquidation_fixtures(source: str = "liquidation_com") -> Iterator[RawCapture]:
     """Load Liquidation.com HTML fixtures (listing card, manifest, auction detail)."""
-    adapter = _registered_adapter(source)
-    if adapter is not None:
-        yield from adapter.load_fixtures()
-        return
-
-    base = Path("/home/coldaine/TechdealsHandoff/scripts/ingest/liquidation_com/fixtures")
-    if not base.exists():
-        raise FileNotFoundError(f"Fixture directory not found: {base}")
+    candidate_bases = [
+        REPO_ROOT / "corpus" / "liquidation_com",
+        REPO_ROOT / "fixtures" / "liquidation_com",
+    ]
+    base = next((p for p in candidate_bases if p.exists()), None)
+    if not base:
+        return iter(())
 
     # Group files by lot ID
     lot_files: dict[str, list[Path]] = {}
     for html_file in sorted(base.glob("*.html")):
-        # Extract lot ID from filename (e.g., listing_card_21256289.html -> 21256289)
         parts = html_file.stem.rsplit("_", 1)
         if len(parts) == 2:
             lot_id = parts[1]
             lot_files.setdefault(lot_id, []).append(html_file)
 
     for lot_id, files in lot_files.items():
-        # Combine all HTML files for this lot into one capture
-        combined_html = ""
-        for f in sorted(files):
-            combined_html += f"<!-- {f.name} -->\n{f.read_text()}\n\n"
-
-        yield RawCapture(
-            source=source,
-            source_listing_id=lot_id,
-            url=f"https://www.liquidation.com/auction/view?id={lot_id}",
-            fetched_at=datetime.now(timezone.utc),
-            checksum=hashlib.sha256(combined_html.encode()).hexdigest(),
-            raw_payload=combined_html,
-            payload_format="html",
-            metadata={"lot_id": lot_id, "files": [str(f) for f in files]},
-        )
+        _warn_missing_timestamp(source, lot_id, files[0])
+    return iter(())
 
 
 def load_rackrat_fixtures(source: str = "rackrat") -> Iterator[RawCapture]:
-    """Load RackRat snapshot fixtures (from big-racks)."""
-    adapter = _registered_adapter(source)
-    if adapter is not None:
-        yield from adapter.load_fixtures()
+    """Load RackRat snapshot fixtures."""
+    candidate_paths = [
+        REPO_ROOT / "corpus" / "fixture-zero" / "servers_read_v2.jsonl",
+        REPO_ROOT / "corpus" / "rackrat" / "snapshot.json",
+        REPO_ROOT / "fixtures" / "rackrat.json",
+    ]
+    path = next((p for p in candidate_paths if p.exists()), None)
+    if not path:
         return
 
-    # Try the full snapshot first, fall back to sample
-    snapshot_path = Path("/home/coldaine/big-racks/web/public/data/snapshot.json")
-    sample_path = Path("/home/coldaine/big-racks/pipeline/tests/fixtures/hits_sample.json")
+    if path.suffix == ".jsonl":
+        lines = path.read_text().splitlines()
+        if path.name == "servers_read_v2.jsonl":
+            print(
+                f"Skipping {source}: {len(lines)} human-verified scoring records in {path} "
+                "have no capture timestamps; original raw artifacts remain in "
+                "corpus/fixture-zero/raw/.",
+                file=sys.stderr,
+            )
+            return
+        for line_number, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            listing = json.loads(line)
+            listing_id = str(listing.get("id", listing.get("client_id", "unknown")))
+            raw_payload = json.dumps(listing)
+            fetched_at = _capture_time(listing)
+            if fetched_at is None:
+                _warn_missing_timestamp(source, listing_id or str(line_number), path)
+                continue
 
-    if snapshot_path.exists():
-        data = json.loads(snapshot_path.read_text())
-        listings = data.get("listings", [])
-    elif sample_path.exists():
-        listings = json.loads(sample_path.read_text())
-        if isinstance(listings, dict):
-            listings = listings.get("hits", [listings])
+            yield RawCapture(
+                source=source,
+                source_listing_id=listing_id,
+                url=listing.get("url", ""),
+                fetched_at=fetched_at,
+                checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
+                raw_payload=raw_payload,
+                payload_format="json",
+                metadata={
+                    "format": "fixture_zero_jsonl",
+                    "timestamp_provenance": "capture_metadata.fetched_at",
+                },
+            )
     else:
-        raise FileNotFoundError("No RackRat fixtures found")
+        data = json.loads(path.read_text())
+        listings = data.get("listings", []) if isinstance(data, dict) else data
+        for listing in listings:
+            if not isinstance(listing, dict):
+                continue
+            listing_id = str(listing.get("id", listing.get("ebay_item", "unknown")))
+            raw_payload = json.dumps(listing)
+            fetched_at = _capture_time(listing)
+            if fetched_at is None:
+                _warn_missing_timestamp(source, listing_id, path)
+                continue
 
-    for listing in listings:
-        if not isinstance(listing, dict):
-            continue
+            yield RawCapture(
+                source=source,
+                source_listing_id=listing_id,
+                url=listing.get("url", ""),
+                fetched_at=fetched_at,
+                checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
+                raw_payload=raw_payload,
+                payload_format="json",
+                metadata={
+                    "format": "rackrat_hit",
+                    "timestamp_provenance": "capture_metadata.fetched_at",
+                },
+            )
 
-        raw_payload = json.dumps(listing)
-        listing_id = (
-            str(listing.get("id") or listing.get("ebay_item") or "")
-            or hashlib.sha256(raw_payload.encode()).hexdigest()[:12]
-        )
 
-        yield RawCapture(
-            source=source,
-            source_listing_id=listing_id,
-            url=listing.get("url") or f"urn:techdeals:{source}:{listing_id}",
-            fetched_at=datetime.now(timezone.utc),
-            checksum=hashlib.sha256(raw_payload.encode()).hexdigest(),
-            raw_payload=raw_payload,
-            payload_format="json",
-            metadata={"format": "rackrat_meilisearch_hit"},
-        )
+def _capture_time(record: dict[str, Any]) -> datetime | None:
+    """Read only an explicit fetch timestamp from capture metadata."""
+    metadata = record.get("capture_metadata")
+    value = metadata.get("fetched_at") if isinstance(metadata, dict) else None
+    if isinstance(value, str) and value:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                return None
+            return parsed.astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _warn_missing_timestamp(source: str, listing_id: str, path: Path) -> None:
+    print(
+        f"Skipping {source}/{listing_id}: no explicit capture_metadata.fetched_at in {path}; "
+        "product updated_at, post updated/published, auction end, and file mtime do not "
+        "establish fetch time. Raw artifact is preserved but not ingested.",
+        file=sys.stderr,
+    )

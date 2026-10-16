@@ -1,7 +1,7 @@
 # 0001: Phase 0 Research Decisions
 
-**Status:** accepted  
-**Date:** 2026-10-12  
+**Status:** accepted
+**Date:** 2026-10-12
 **Scope:** TechDeals v2 — core technical choices from Phase 0 research
 
 ---

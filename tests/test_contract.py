@@ -150,3 +150,45 @@ def test_url_must_be_non_empty() -> None:
             raw_payload="a",
             payload_format="html",
         )
+
+
+def test_empty_url_requires_explicit_incomplete_source_metadata() -> None:
+    capture = RawCapture(
+        source="shopify",
+        source_listing_id="product-1",
+        url="",
+        fetched_at=datetime.now(timezone.utc),
+        checksum="a",
+        raw_payload="{}",
+        payload_format="json",
+        metadata={"source_url_status": "incomplete"},
+    )
+    assert capture.url == ""
+
+
+def test_incomplete_url_metadata_cannot_mask_a_present_url() -> None:
+    with pytest.raises(ValidationError):
+        RawCapture(
+            source="shopify",
+            source_listing_id="product-1",
+            url="https://example.test/product-1",
+            fetched_at=datetime.now(timezone.utc),
+            checksum="a",
+            raw_payload="{}",
+            payload_format="json",
+            metadata={"source_url_status": "incomplete"},
+        )
+
+
+def test_empty_url_metadata_requires_explicit_status() -> None:
+    with pytest.raises(ValidationError):
+        RawCapture(
+            source="shopify",
+            source_listing_id="product-1",
+            url="",
+            fetched_at=datetime.now(timezone.utc),
+            checksum="a",
+            raw_payload="{}",
+            payload_format="json",
+            metadata={"artifact_locator": "file:///tmp/product.json"},
+        )

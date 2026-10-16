@@ -4,15 +4,21 @@ Implements BRIEF.md §4 (settled design) for the four §6 target queries:
 
 | Query | View |
 |-------|------|
-| Q1 cheapest N units of spec S available right now | `v_cheapest_available`, `v_category_prices`, `v_line_ram` |
+| Q1 cheapest N units of spec S available right now | `v_cheapest_available`, `v_category_prices`, `v_line_ram`, `v_group_ram` |
 | Q2 what did this cost over time | `v_price_history` |
-| Q3 what is this lot actually worth | `v_lot_worth` (+ `v_product_reference_price`) |
+| Q3 what is this lot actually worth | `v_lot_worth` (+ `v_product_reference_price`), `v_partout` (+ `v_ddr4_gb_rate`) |
 | Q4 what did we miss (quarantined/accounting) | `v_accounting` (+ `v_stale_quarantine`) |
 
 Every table, column, and view names the target query it serves in a SQL
 `COMMENT`. Constructs serving none of the four were not built (the one
 exception found in review — `postings_payload_gin`, which served no query —
 was dropped).
+
+`v_partout` and `v_ddr4_gb_rate` follow
+`docs/adr/0002-partout-price-assumptions.md`. That record is the calculation:
+exact key, minimum ask, out-of-stock comps allowed, one DDR4 pool for the
+rate only, no count gate, and no spread gate. The SQL comments describe the
+formula. They do not replace the ADR.
 
 ## Files (apply in order)
 
@@ -32,6 +38,18 @@ Conventions (BRIEF §4): uuidv7 PKs, timestamptz everywhere, text + CHECK (no
 enum types), append-only ledgers whose ONLY correction path is the
 `superseded_by` pointer (set once, only to a strictly later row), derived
 values computed in views only.
+
+The intake CLI stores `postings.payload` as a JSONB envelope containing
+`payload_format`, exact `raw_payload` text, and capture `metadata`. This keeps
+HTML, XML, and JSON evidence intact without requiring every source payload to
+be valid JSON. Only explicit `capture_metadata.fetched_at` values qualify for
+`fetched_at`; product update, post publication/update, and auction close times
+are skipped and reported because they describe the source object, not when it
+was captured. Local file modification time is never stored as `fetched_at`. Local
+fixture paths are retained as `artifact_locator` metadata and are never
+reported as source URLs. When a source URL is absent, the intake key uses the
+stable `source_listing_id` to keep separate fixture captures distinct, and
+retains an empty URL plus explicit incomplete provenance.
 
 ## Key invariants added by the adversarial-review fixes (2026-10-12)
 
