@@ -15,10 +15,17 @@ claim. The integration branch remains local.
   the standalone extractor's unknown-time fallback before any database pilot.
 - PR #6 cluster audit evidence at `148e74c`.
 - PR #7 model capability handling at `781c6fe`, stricter sale-group validation
-  at `73aa641`, required outcome validation at `71c67d4`, and blank component
-  label failure handling at `51a530b`.
+  at `73aa641`, required outcome validation at `71c67d4`, blank component label
+  failure handling at `51a530b`, price contract validation at `1c76116`, and
+  price-basis/batch safeguards at `0c3a7ef`.
 - Resolver/query adjustments at `0bca9b3`, saved-result provenance handling at
   `acc96fc`, and documentation updates at `9bcd86b`.
+- View corrections at `2b02cb4` for available inventory, self-comps, missing
+  quantity, group replay asks, per-unit versus whole-lot basis, and posting-level
+  quarantine. Line-price, line-availability, and accounting-view replay support
+  remain deferred.
+- Atomic same-key price/category supersession at `e4221e2`, with rollback-only
+  proof at `339e08f`.
 - Canonical PR #15 remains in `main`; its newer execution checkpoint and
   263-artifact fetch-time limitation are retained from the canonical base.
 
@@ -60,6 +67,13 @@ must remain one posting; splitting them would change capture identity without an
 approved discriminator contract. Distinct artifacts that share source, URL, and
 capture time remain a broader identity question for issue #17.
 
+Price and category self-references are deferrable only when explicitly deferred
+within a correction transaction. The partial unique indexes continue to enforce
+one live row per offer/timestamp/kind or category name; no exclusion constraint
+or extension was added. Schema smoke coverage and a rollback-only Neon proof
+exercise same-key replacement; see
+[`supersession-deferrable-fk-proof.md`](supersession-deferrable-fk-proof.md).
+
 ## Verification boundary
 
 The combined local suite, lock check, acceptance SQL review, and schema parity
@@ -68,8 +82,8 @@ replay correctness, live-source coverage, complete capture-to-query behavior,
 semantic quality, or production readiness. Both repositories remain active;
 no archive or production change is part of this candidate.
 
-At the current integration checkpoint, 78 tests pass, `uv lock --check` passes,
-and root/package migration parity is 3/3. `git diff --check` is clean. Full Ruff
+At the current integration checkpoint, 84 tests pass, `uv lock --check` passes,
+and root/package migration and smoke-test parity is 4/4. `git diff --check` is clean. Full Ruff
 reported the same 148 existing diagnostics as canonical main before integration
 (120 E501, 24 E741, 2 I001, 1 W292, 1 F841); no lint suppression or wholesale
 prompt reformat was applied. The SQL acceptance files were updated to the
