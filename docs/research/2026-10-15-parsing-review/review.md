@@ -38,3 +38,7 @@ Use independently checked captured listings with expected purchase groups, compo
 For listing `287125775104`, the source description states `(6) HPE 600GB SAS` drives. The result instead has a Hard Drives line with quantity 6 and `storage_capacity_gb=3600`. The identity resolver would use that capacity as one drive's capacity, yielding a 3600GB identity instead of 600GB. The same result merges two distinct network adapters into one line with quantity 2, retaining the first adapter's attributes. For listing `389465023988`, the description explicitly says Processor None and Memory None, but the extraction includes empty Processors and Memory lines. These are concrete purchase-meaning failures that the five-field scorer does not measure.
 
 Resolver confidence values are constants in branches (0.9 or 0.6), not calibrated probabilities or measured correctness. A server identity using CPU plus chassis ignores installed memory and storage. Treating that identity as a comparable configuration would be unsupported.
+
+## Additional bundle interpretation discrepancy
+
+Results `800121149027` and `366575148211` describe each displayed price as buying one motherboard-and-CPU bundle, but mark both component lines `separately_purchasable: true`. Those flags contradict the stated purchase scope. They require checking against the source and correcting through the full writer/query path; these saved JSON results do not demonstrate that separate offers were actually published. The five-field scorer does not check purchaseability.

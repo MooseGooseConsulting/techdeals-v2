@@ -7,9 +7,12 @@ read, plus organization PR #11. Connection page limits were sufficient for the
 returned thread/comment counts; no additional thread pages were indicated.
 This is feedback triage, not a complete independent code review of every PR.
 
-No GitHub thread has been resolved and no fix has been pushed. Candidate patches
-are preserved beside this document and in isolated local worktrees. Refresh heads
-and verify applicability before publishing them to the chosen canonical repo.
+The table below preserves the initial local triage record. Subsequently the
+fixes were pushed under organization ownership: #3 at `701e240`, #5 at `cceba5f`,
+#6 at `148e74c`, and #7 at `6791c7f`. The seven repaired threads on #5/#6 have
+been resolved after verification. Fresh organization reviews are running; prior
+requested-changes reviews are not treated as approval. Candidate patch files are
+historical snapshots; current Git commits and PR heads are authoritative.
 
 | Feedback | Assessment and local response | Verification limit |
 |---|---|---|

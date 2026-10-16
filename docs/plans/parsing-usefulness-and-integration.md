@@ -19,7 +19,9 @@ product scope or authorize replacing the production system.
 
 ## Repository topology and consolidation
 
-Three repositories must be distinguished:
+The table below records the starting repository snapshot; PR counts and heads
+are historical, not a live status feed. Publication and completion are being
+recorded separately. Three repositories must be distinguished:
 
 | Repository | Verified state on 2026-10-15 | Role and consolidation status |
 |---|---|---|
@@ -34,6 +36,8 @@ PRs, issues and review history without displacing the existing organization repo
 Bring reviewed missing work into the canonical repo through a consolidation PR.
 Preserve original source links and record which commit/PR supplies each change.
 Keep both histories; do not delete either repo or force-push one over the other.
+Both repositories remain active. The owner explicitly rejected archiving during
+ongoing work; no archival is planned or authorized by this task.
 Verify reviewer applications actually run on current heads, rather than inferring
 coverage from organization ownership. Consolidation completion and production
 integration remain separate outcomes.
@@ -45,6 +49,10 @@ changes require explicit review, not mechanical conflict resolution. Existing
 organization CLI wiring must itself be checked against #14's module removals.
 
 ## Step 1: review and disposition all existing PRs before new implementation
+
+The PR table records the initial review heads. The plan itself is canonical
+[PR #15](https://github.com/MooseGooseConsulting/techdeals-v2/pull/15), reviewed as
+a documentation change alongside the listed implementation PRs.
 
 Review current heads, all current review threads, review summaries, issue
 comments containing findings, and relevant checks. Distinguish resolved/outdated
@@ -227,8 +235,12 @@ demonstrated; do not treat a partial component subtotal as the server's value.
 | Personal [#2](https://github.com/MooseGooseConsulting/techdeals-v2-review-import/issues/2) | Step 4, after its explicit data prerequisite | Empirical valuation record and ADR update reviewed in a PR |
 | Production [#226](https://github.com/MooseGooseConsulting/TechdealsHandoff/issues/226) | Step 4 source inventory | Actual source acquisition/intake/query proof or explicit owner deferral; a plan does not close it |
 
-As part of consolidation, reconcile these into the canonical tracker with original
-links. Add missing implementation tracking for semantic failures, truthful
+The three former personal issues have been transferred with history into the
+canonical tracker: #2 → [#16](https://github.com/MooseGooseConsulting/techdeals-v2/issues/16),
+#8 → [#17](https://github.com/MooseGooseConsulting/techdeals-v2/issues/17), and
+#9 → [#18](https://github.com/MooseGooseConsulting/techdeals-v2/issues/18).
+Original issue URLs redirect to their destinations. Reconcile further tracking
+with those issues as part of consolidation. Add missing implementation tracking for semantic failures, truthful
 measurement, application/schema alignment, identity/comparability, continuity,
 and production repairs after checking for existing equivalents. This document's
 checkpoints are proposed work, not evidence that issues were created or changed.
