@@ -1461,10 +1461,21 @@ def main(argv=None) -> int:
             db_write_batch(dsn, doc)
         print(f"  -> cost ${row.get('cost_usd', 0) or 0:.6f}, {row.get('input_tokens', '?')} in / {row.get('output_tokens', '?')} out tokens, {row.get('latency_s', '?')}s", file=sys.stderr)
 
+    listing_by_id = {listing["client_id"]: listing for listing in listings}
     out = {
+        "format": "techdeals-saved-results/v2",
         "run_id": run_id, "model": args.model, "parser_name": parser_name,
         "prompt_version": PROMPT_VERSION, "batch_size": args.batch_size,
-        "results": [all_results.get(l["client_id"]) for l in listings if l["client_id"] in all_results],
+        "results": [
+            {
+                **all_results[listing["client_id"]],
+                "capture": {
+                    "checksum": listing_by_id[listing["client_id"]]["checksum"],
+                    "offer_key": listing_by_id[listing["client_id"]]["offer_key"],
+                },
+            }
+            for listing in listings if listing["client_id"] in all_results
+        ],
         "failed": all_failed,
         "batch_rows": batch_rows,
     }
