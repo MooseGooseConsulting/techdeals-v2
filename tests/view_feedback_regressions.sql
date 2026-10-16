@@ -13,7 +13,8 @@ CREATE FUNCTION pg_temp.add_group_listing(
     p_term_quantity numeric,
     p_amount numeric,
     p_price_quantity numeric,
-    p_availability text
+    p_availability text,
+    p_currency text DEFAULT 'USD'
 ) RETURNS uuid
 LANGUAGE plpgsql AS $helper$
 DECLARE
@@ -52,7 +53,7 @@ BEGIN
              observed_at, price_kind, price_basis, amount, currency, quantity)
         VALUES (encode(sha256(convert_to(v_posting_key || '|g0', 'UTF8')), 'hex'),
                 'g0', v_posting, 'sale_group', v_group, now(), 'ask', 'explicit_unit',
-                p_amount, 'USD', p_price_quantity);
+                p_amount, p_currency, p_price_quantity);
     END IF;
 
     IF p_availability IS NOT NULL THEN
@@ -99,6 +100,9 @@ DECLARE
     v_key text;
     v_price numeric;
     v_count integer;
+    v_lines_total integer;
+    v_cad_price numeric;
+    v_cad_count integer;
     v_incomplete boolean;
     v_component_value numeric;
     v_lot_ask numeric;
@@ -108,6 +112,7 @@ DECLARE
     v_posting_released uuid;
     v_state text;
     v_reason text;
+    v_currency text;
     v_line_quarantined_count integer;
 BEGIN
     -- Available comps only: unavailable, unknown and unchecked offers must
@@ -120,6 +125,30 @@ BEGIN
     FROM v_product_reference_price WHERE product_key = 'feedback.available-ref';
     IF v_price <> 12 OR v_count <> 1 THEN
         RAISE EXCEPTION 'smoke fail: availability reference was %, count %; expected 12 and 1', v_price, v_count;
+    END IF;
+
+    -- Currency is part of reference identity; unlike-currency prices must not
+    -- compete for one minimum, and a USD lot must not use a CAD component.
+    PERFORM pg_temp.add_group_listing('cad-ref', 'feedback.currency', 1, 1, 2, 1, 'available', 'CAD');
+    PERFORM pg_temp.add_group_listing('usd-ref', 'feedback.currency', 1, 1, 12, 1, 'available', 'USD');
+    SELECT ref_unit_price, comparable_count INTO v_price, v_count
+    FROM v_product_reference_price
+    WHERE product_key = 'feedback.currency' AND currency = 'USD';
+    SELECT ref_unit_price, comparable_count INTO v_cad_price, v_cad_count
+    FROM v_product_reference_price
+    WHERE product_key = 'feedback.currency' AND currency = 'CAD';
+    IF v_price <> 12 OR v_count <> 1 OR v_cad_price <> 2 OR v_cad_count <> 1 THEN
+        RAISE EXCEPTION 'smoke fail: currency-split references USD %/% CAD %/%',
+            v_price, v_count, v_cad_price, v_cad_count;
+    END IF;
+
+    PERFORM pg_temp.add_group_listing('currency-comp-usd', 'feedback.currency-lot', 1, 1, 12, 1, 'available', 'USD');
+    PERFORM pg_temp.add_group_listing('currency-comp-cad', 'feedback.currency-lot', 1, 1, 1, 1, 'available', 'CAD');
+    v_posting := pg_temp.add_group_listing('currency-lot-usd', 'feedback.currency-lot', 10, 10, 500, 1, 'unavailable', 'USD');
+    SELECT currency, component_value INTO v_currency, v_component_value
+    FROM v_lot_worth WHERE posting_id = v_posting;
+    IF v_currency <> 'USD' OR v_component_value <> 120 THEN
+        RAISE EXCEPTION 'smoke fail: USD lot used another currency: %, %', v_currency, v_component_value;
     END IF;
 
     -- A single-line lot cannot use its own available ask as its sole comparable.
@@ -209,6 +238,19 @@ BEGIN
     IF v_state <> 'released' OR v_line_quarantined_count <> 1 THEN
         RAISE EXCEPTION 'smoke fail: line quarantine replaced posting release or was not counted: %, %',
             v_state, v_line_quarantined_count;
+    END IF;
+
+    -- A purchasable group without terms is not evidence of a complete $0 lot.
+    v_posting := pg_temp.add_posting_with_line('zero-member-lot');
+    SELECT extraction_id INTO v_current_extraction FROM v_current_extractions WHERE posting_id = v_posting;
+    INSERT INTO sale_groups (posting_id, extraction_id, position, label)
+    VALUES (v_posting, v_current_extraction, 0, 'empty terms');
+    SELECT lines_valued, lines_total, valuation_incomplete
+      INTO v_count, v_lines_total, v_incomplete
+    FROM v_lot_worth WHERE posting_id = v_posting;
+    IF v_count <> 0 OR v_lines_total <> 0 OR NOT v_incomplete THEN
+        RAISE EXCEPTION 'smoke fail: zero-member lot appeared complete: valued %, total %, incomplete %',
+            v_count, v_lines_total, v_incomplete;
     END IF;
 END
 $smoke$;

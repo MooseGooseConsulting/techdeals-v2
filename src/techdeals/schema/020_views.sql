@@ -230,17 +230,19 @@ CREATE VIEW v_product_reference_price AS
 SELECT product_key,
        min(unit_price) AS ref_unit_price,
        min(bound_low)  AS ref_bound_low,
-       count(*)        AS comparable_count
+       count(*)        AS comparable_count,
+       currency
 FROM v_cheapest_available
 WHERE product_key IS NOT NULL
   AND availability_state = 'available'
-GROUP BY product_key;
+GROUP BY product_key, currency;
 
-COMMENT ON VIEW  v_product_reference_price         IS 'Q3 helper: cheapest currently-available unit price per resolved product — the (1) that lot lines are priced against.';
+COMMENT ON VIEW  v_product_reference_price         IS 'Q3 helper: cheapest currently-available unit price per resolved product and currency — no implicit exchange conversion.';
 COMMENT ON COLUMN v_product_reference_price.product_key     IS 'Q3: resolved product.';
 COMMENT ON COLUMN v_product_reference_price.ref_unit_price  IS 'Q3: best available market unit price for that product.';
 COMMENT ON COLUMN v_product_reference_price.ref_bound_low   IS 'Q3: best available lower bound when comps are bound_only.';
 COMMENT ON COLUMN v_product_reference_price.comparable_count IS 'Q3: how many comps back the reference (small counts = weak reference).';
+COMMENT ON COLUMN v_product_reference_price.currency IS 'Q3: currency shared by this reference; different currencies are never compared without an explicit conversion.';
 
 CREATE VIEW v_lot_worth AS
 WITH lots AS (
@@ -307,6 +309,7 @@ members AS (
         WHERE ca.product_key = r.product_key
           AND ca.posting_id <> lt.posting_id
           AND ca.availability_state = 'available'
+          AND ca.currency = lt.currency
     ) ref ON true
 ),
 valuation AS (
@@ -326,8 +329,9 @@ SELECT lt.sale_group_id,
        lt.lot_bound_low, lt.lot_bound_high,
        v.component_value,
        v.component_value_lower_bound,
-       v.lines_valued, v.lines_total,
-       (v.lines_valued < v.lines_total) AS valuation_incomplete,
+       COALESCE(v.lines_valued, 0) AS lines_valued,
+       COALESCE(v.lines_total, 0) AS lines_total,
+       COALESCE(v.lines_valued < v.lines_total, true) AS valuation_incomplete,
        lt.lot_ask_comparable_total - v.component_value AS ask_minus_component_value,
        lt.lot_ask_comparable_total
 FROM lots lt
@@ -340,7 +344,7 @@ COMMENT ON COLUMN v_lot_worth.component_value             IS 'Q3: sum of per-lin
 COMMENT ON COLUMN v_lot_worth.component_value_lower_bound IS 'Q3: sum of per-line lower bounds — conservative floor.';
 COMMENT ON COLUMN v_lot_worth.lines_valued                IS 'Q3: how many lines got a reference price (resolution + comps existed).';
 COMMENT ON COLUMN v_lot_worth.lines_total                 IS 'Q3: denominator — all member lines.';
-COMMENT ON COLUMN v_lot_worth.valuation_incomplete        IS 'Q3: true when some lines could not be valued; the answer states its gaps instead of hiding them.';
+COMMENT ON COLUMN v_lot_worth.valuation_incomplete        IS 'Q3: true when some lines could not be valued or the group has no member terms; an empty decomposition is never claimed complete.';
 COMMENT ON COLUMN v_lot_worth.ask_minus_component_value   IS 'Q3: deal premium/discount of the comparable whole-purchase ask versus component values; NULL when an explicit single-line unit ask cannot be normalized because unit coverage is unknown.';
 COMMENT ON COLUMN v_lot_worth.lot_ask_comparable_total    IS 'Q3: derived ask for the full purchase: explicit per-unit asks on single-line groups are normalized by the stated amount coverage and member quantity; raw lot_ask remains available.';
 
