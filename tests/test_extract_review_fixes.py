@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-
 from engine import extract
 from engine.adapters.govdeals import project as project_govdeals
 
@@ -51,7 +50,7 @@ def test_truncated_batch_of_four_splits_only_into_floor_sized_calls(tmp_path: Pa
                     "prompt_tokens": 1, "completion_tokens": 1, "cached_tokens": 0,
                     "latency_s": 0.1, "truncated": True, "salvaged": False,
                 }
-            return ([{"id": item["id"], "outcome": "no_purchase_information"}
+            return ([{"id": item["id"], "outcome": "no_purchase_information", "sale_groups": []}
                      for item in items], {
                 "prompt_tokens": 1, "completion_tokens": 1, "cached_tokens": 0,
                 "latency_s": 0.1, "truncated": False, "salvaged": False,
