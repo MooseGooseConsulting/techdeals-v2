@@ -1,0 +1,10 @@
+{
+  "inputs": 24,
+  "returned_results": 8,
+  "outcomes": {
+    "quarantined": 1,
+    "extracted": 7
+  },
+  "call_failures": 16,
+  "database_writes": false
+}

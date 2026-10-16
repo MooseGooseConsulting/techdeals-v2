@@ -1,0 +1,617 @@
+{
+ "run_id": "20261015T222154",
+ "model": "nvidia/nemotron-3.5-lightning:free",
+ "parser_name": "llm_batch:review-free-20261015",
+ "prompt_version": "batch-v2",
+ "batch_size": 8,
+ "results": [
+  {
+   "id": "175685579251",
+   "outcome": "quarantined",
+   "sale_groups": [],
+   "quarantine": {
+    "reason": "not_inventory",
+    "detail": "Listing is a standalone CPU processor, not a configured server or system. No purchasable configuration, lines, or price structure beyond a single CPU unit."
+   },
+   "conflicts": [],
+   "read_confidence": null,
+   "read_note": null
+  },
+  {
+   "id": "327384872371",
+   "outcome": "extracted",
+   "sale_groups": [
+    {
+     "label": "Dell PowerEdge R7515 24-Bay Server 3.20Ghz 8-Core 512GB RAM + 43TB Storage Rails",
+     "availability": "available",
+     "price": {
+      "amount": "11063.95",
+      "currency": "USD",
+      "price_kind": "ask",
+      "price_basis": "explicit_unit",
+      "quantity_units": 1,
+      "bound_low": null,
+      "bound_high": null,
+      "basis_note": "Displayed price for one configured server bundle"
+     },
+     "lines": [
+      {
+       "label": "Chassis",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "chassis_vendor": "Dell",
+        "chassis_model": "PowerEdge R7515",
+        "form_factor_u": "2U"
+       },
+       "children": []
+      },
+      {
+       "label": "Processors",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "cpu_model": "AMD EPYC 7262",
+        "cpu_count": 1,
+        "cpu_cores": 8,
+        "cpu_threads": 8,
+        "cpu_family": "Rome"
+       },
+       "children": []
+      },
+      {
+       "label": "Memory",
+       "quantity": 16,
+       "separately_purchasable": false,
+       "attributes": {
+        "ram_total_gb": 512,
+        "ram_dimm_count": 16,
+        "ram_dimm_gb": 32,
+        "ram_type": "DDR4 SDRAM",
+        "ram_speed_mts": 3200
+       },
+       "children": []
+      },
+      {
+       "label": "Hard Drives",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "storage_capacity_gb": 43000,
+        "storage_kind": "HDD",
+        "storage_interface": "SAS"
+       },
+       "children": []
+      },
+      {
+       "label": "Power Supplies",
+       "quantity": 2,
+       "separately_purchasable": false,
+       "attributes": {
+        "psu_count": 2,
+        "psu_watts": 1100
+       },
+       "children": []
+      },
+      {
+       "label": "RAID Controller",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "raid_controller": "H740P Integrated 8GB Cache"
+       },
+       "children": []
+      },
+      {
+       "label": "Remote Management",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "nic": "Embedded Dual-Port 1GB RJ-45"
+       },
+       "children": []
+      }
+     ]
+    }
+   ],
+   "quarantine": {},
+   "conflicts": [
+    "title says \"8-Core\" but spec table lists \"AMD EPYC 7262\" which is an 8-core processor; title wording is consistent with the processor model listed in specs, no conflict detected"
+   ],
+   "read_confidence": "high",
+   "read_note": "All component counts and specs pulled directly from the listing description and spec table; price is a single ask for the full bundle."
+  },
+  {
+   "id": "306444479932",
+   "outcome": "extracted",
+   "sale_groups": [
+    {
+     "label": "HPE DL325 Gen10+ RU Assy SMC Chassis only P14625-002",
+     "availability": "available",
+     "price": {
+      "amount": "49",
+      "currency": "USD",
+      "price_kind": "ask",
+      "price_basis": "explicit_unit",
+      "quantity_units": 1,
+      "bound_low": null,
+      "bound_high": null,
+      "basis_note": "Displayed price for one chassis unit"
+     },
+     "lines": [
+      {
+       "label": "Chassis",
+       "quantity": 1,
+       "separately_purchasable": true,
+       "attributes": {
+        "chassis_vendor": "HP",
+        "chassis_model": "DL325 Gen10+",
+        "form_factor_u": "1U"
+       },
+       "children": []
+      }
+     ]
+    }
+   ],
+   "quarantine": {},
+   "conflicts": [],
+   "read_confidence": "high",
+   "read_note": "Listing is a chassis-only offering; no CPU, RAM, or drives included. Price is for the chassis alone."
+  },
+  {
+   "id": "287125775104",
+   "outcome": "extracted",
+   "sale_groups": [
+    {
+     "label": "HPE DL325 Gen10 1x EPYC 7452 32-Cores 64GB-R P408i 6x 600GB 2x 800W 1U Server",
+     "availability": "available",
+     "price": {
+      "amount": "6052.20",
+      "currency": "USD",
+      "price_kind": "ask",
+      "price_basis": "explicit_unit",
+      "quantity_units": 1,
+      "bound_low": null,
+      "bound_high": null,
+      "basis_note": "Displayed price for one configured server bundle"
+     },
+     "lines": [
+      {
+       "label": "Server Chassis",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "chassis_vendor": "HPE",
+        "chassis_model": "DL325 Gen10",
+        "form_factor_u": "1U"
+       },
+       "children": []
+      },
+      {
+       "label": "Processors",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "cpu_model": "EPYC 7452",
+        "cpu_count": 1,
+        "cpu_cores": 32,
+        "cpu_threads": 64,
+        "cpu_family": "Naples"
+       },
+       "children": []
+      },
+      {
+       "label": "Memory",
+       "quantity": 4,
+       "separately_purchasable": false,
+       "attributes": {
+        "ram_total_gb": 64,
+        "ram_dimm_count": 4,
+        "ram_dimm_gb": 16,
+        "ram_type": "DDR4",
+        "ram_speed_mts": 2933
+       },
+       "children": []
+      },
+      {
+       "label": "RAID Controller",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "raid_controller": "Smart Array P408I-P SR G10 2GB Cache"
+       },
+       "children": []
+      },
+      {
+       "label": "Solid State Drives",
+       "quantity": 2,
+       "separately_purchasable": false,
+       "attributes": {
+        "storage_capacity_gb": 480,
+        "storage_kind": "SSD",
+        "storage_interface": "SATA"
+       },
+       "children": []
+      },
+      {
+       "label": "Hard Drives",
+       "quantity": 6,
+       "separately_purchasable": false,
+       "attributes": {
+        "storage_capacity_gb": 3600,
+        "storage_kind": "HDD",
+        "storage_interface": "SAS"
+       },
+       "children": []
+      },
+      {
+       "label": "Power Supplies",
+       "quantity": 2,
+       "separately_purchasable": false,
+       "attributes": {
+        "psu_count": 2,
+        "psu_watts": 800
+       },
+       "children": []
+      },
+      {
+       "label": "Network Adapters",
+       "quantity": 2,
+       "separately_purchasable": false,
+       "attributes": {
+        "nic": "HP Ethernet 1GB 4-Port 366FLR Adapter",
+        "nic_speed_gbps": 1,
+        "nic_count": 4
+       },
+       "children": []
+      },
+      {
+       "label": "Remote Management",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "nic": "HPE iLO Advanced License"
+       },
+       "children": []
+      },
+      {
+       "label": "Rack Rails",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "form_factor_u": "1U"
+       },
+       "children": []
+      }
+     ]
+    }
+   ],
+   "quarantine": {},
+   "conflicts": [],
+   "read_confidence": "high",
+   "read_note": "Full server configuration extracted from description and spec table; price is a single ask for the bundle."
+  },
+  {
+   "id": "336710692561",
+   "outcome": "extracted",
+   "sale_groups": [
+    {
+     "label": "Dell PowerEdge R6515 10X2.5\"（10xNVM E）Server H730/2x550W/75 42 32Core/128G RAM",
+     "availability": "available",
+     "price": {
+      "amount": "6050",
+      "currency": "USD",
+      "price_kind": "ask",
+      "price_basis": "explicit_unit",
+      "quantity_units": 1,
+      "bound_low": null,
+      "bound_high": null,
+      "basis_note": "Displayed price for one configured server bundle"
+     },
+     "lines": [
+      {
+       "label": "Chassis",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "chassis_vendor": "Dell",
+        "chassis_model": "PowerEdge R6515",
+        "form_factor_u": "2U"
+       },
+       "children": []
+      },
+      {
+       "label": "Processors",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "cpu_model": "AMD EPYC 7542",
+        "cpu_count": 1,
+        "cpu_cores": 32,
+        "cpu_threads": 64,
+        "cpu_family": "Milan"
+       },
+       "children": []
+      },
+      {
+       "label": "Memory",
+       "quantity": 4,
+       "separately_purchasable": false,
+       "attributes": {
+        "ram_total_gb": 128,
+        "ram_dimm_count": 4,
+        "ram_dimm_gb": 32,
+        "ram_type": "DDR4 SDRAM",
+        "ram_speed_mts": 3200
+       },
+       "children": []
+      },
+      {
+       "label": "RAID Controller",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "raid_controller": "H730"
+       },
+       "children": []
+      },
+      {
+       "label": "Network Card",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "nic": "Motherboard comes with its own network card"
+       },
+       "children": []
+      },
+      {
+       "label": "PSU",
+       "quantity": 2,
+       "separately_purchasable": false,
+       "attributes": {
+        "psu_count": 2,
+        "psu_watts": 550
+       },
+       "children": []
+      }
+     ]
+    }
+   ],
+   "quarantine": {},
+   "conflicts": [
+    "title includes \"10X2.5\" (10x NVM E) but description says \"HDD: None\" and \"Hard drive bays: 10\" with no drives installed; title references NVM E (likely NVMe) while description states no HDDs; conflict between title's storage implication and description's explicit HDD: None"
+   ],
+   "read_confidence": "high",
+   "read_note": "Spec table and description parsed; price is a single ask for the bundle."
+  },
+  {
+   "id": "389465023988",
+   "outcome": "extracted",
+   "sale_groups": [
+    {
+     "label": "Dell PowerEdge R6515 4X3.5\" Bay Server H330 RAID 2x 550W For EPYC 7002/7003 CPU",
+     "availability": "available",
+     "price": {
+      "amount": "3679",
+      "currency": "USD",
+      "price_kind": "ask",
+      "price_basis": "explicit_unit",
+      "quantity_units": 1,
+      "bound_low": null,
+      "bound_high": null,
+      "basis_note": "Displayed price for one configured server bundle"
+     },
+     "lines": [
+      {
+       "label": "Chassis",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "chassis_vendor": "Dell",
+        "chassis_model": "PowerEdge R6515",
+        "form_factor_u": "2U"
+       },
+       "children": []
+      },
+      {
+       "label": "Processors",
+       "quantity": null,
+       "separately_purchasable": false,
+       "attributes": {},
+       "children": []
+      },
+      {
+       "label": "Memory",
+       "quantity": null,
+       "separately_purchasable": false,
+       "attributes": {},
+       "children": []
+      },
+      {
+       "label": "RAID Controller",
+       "quantity": 1,
+       "separately_purchasable": false,
+       "attributes": {
+        "raid_controller": "H330"
+       },
+       "children": []
+      },
+      {
+       "label": "PSU",
+       "quantity": 2,
+       "separately_purchasable": false,
+       "attributes": {
+        "psu_count": 2,
+        "psu_watts": 550
+       },
+       "children": []
+      }
+     ]
+    }
+   ],
+   "quarantine": {},
+   "conflicts": [
+    "title and description both state \"Processor: None\" and \"Memory None\" but price is listed; listing offers no CPU or RAM installed, yet price exists — conflict between stated empty configuration and listed price"
+   ],
+   "read_confidence": "high",
+   "read_note": "Lines reflect what the listing explicitly states; CPU and memory are null because the listing says none."
+  },
+  {
+   "id": "800121149027",
+   "outcome": "extracted",
+   "sale_groups": [
+    {
+     "label": "Supermicro H12SSL-i Motherboard + AMD EPYC 7532 3.3GHz CPU Processor Combos",
+     "availability": "available",
+     "price": {
+      "amount": "1520",
+      "currency": "USD",
+      "price_kind": "ask",
+      "price_basis": "explicit_unit",
+      "quantity_units": 1,
+      "bound_low": null,
+      "bound_high": null,
+      "basis_note": "Displayed price for one motherboard+CPU combo bundle"
+     },
+     "lines": [
+      {
+       "label": "Motherboard",
+       "quantity": 1,
+       "separately_purchasable": true,
+       "attributes": {
+        "chassis_vendor": "Supermicro",
+        "chassis_model": "H12SSL-i",
+        "form_factor_u": "ATX"
+       },
+       "children": []
+      },
+      {
+       "label": "CPU",
+       "quantity": 1,
+       "separately_purchasable": true,
+       "attributes": {
+        "cpu_model": "AMD EPYC 7532",
+        "cpu_count": 1,
+        "cpu_cores": 32,
+        "cpu_threads": 64,
+        "cpu_family": "Milan"
+       },
+       "children": []
+      }
+     ]
+    }
+   ],
+   "quarantine": {},
+   "conflicts": [],
+   "read_confidence": "high",
+   "read_note": "Motherboard+CPU combo listed as one purchasable bundle; price is ask for the combo."
+  },
+  {
+   "id": "366575148211",
+   "outcome": "extracted",
+   "sale_groups": [
+    {
+     "label": "AMD EPYC 7313 CPU 16 Cores 3.0GHz 155W SP3 Processors +Supermicro H12SSL-i",
+     "availability": "available",
+     "price": {
+      "amount": "1580",
+      "currency": "USD",
+      "price_kind": "ask",
+      "price_basis": "explicit_unit",
+      "quantity_units": 1,
+      "bound_low": null,
+      "bound_high": null,
+      "basis_note": "Displayed price for one motherboard+CPU combo bundle"
+     },
+     "lines": [
+      {
+       "label": "CPU",
+       "quantity": 1,
+       "separately_purchasable": true,
+       "attributes": {
+        "cpu_model": "AMD EPYC 7313",
+        "cpu_count": 1,
+        "cpu_cores": 16,
+        "cpu_threads": 32,
+        "cpu_family": "Milan"
+       },
+       "children": []
+      },
+      {
+       "label": "Motherboard",
+       "quantity": 1,
+       "separately_purchasable": true,
+       "attributes": {
+        "chassis_vendor": "Supermicro",
+        "chassis_model": "H12SSL-i",
+        "form_factor_u": "ATX"
+       },
+       "children": []
+      }
+     ]
+    }
+   ],
+   "quarantine": {},
+   "conflicts": [],
+   "read_confidence": "high",
+   "read_note": "Combo listing with one CPU and one motherboard; price is ask for the bundle."
+  }
+ ],
+ "failed": {
+  "176541745441": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "175699383587": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "316777084170": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "317789422030": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "117303596450": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "127822340628": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "127462928151": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "358734059337": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "t3_abc123": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "t3_def456": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "t3_wanted1": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "7178788372613": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "5228288606341": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "7256324997253": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "5079497277573": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}",
+  "govdeals-30467-94": "batch call failed: router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}"
+ },
+ "batch_rows": [
+  {
+   "ts": "2026-10-15T22:23:55.050879+00:00",
+   "batch_index": "0",
+   "model": "nvidia/nemotron-3.5-lightning:free",
+   "prompt_version": "batch-v2",
+   "listing_count": 8,
+   "status": "call_failed",
+   "error": "router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}"
+  },
+  {
+   "ts": "2026-10-15T22:24:32.294649+00:00",
+   "batch_index": "1",
+   "model": "nvidia/nemotron-3.5-lightning:free",
+   "prompt_version": "batch-v2",
+   "listing_count": 8,
+   "input_tokens": 13915,
+   "output_tokens": 4647,
+   "cached_tokens": 0,
+   "cost_usd": 0.0,
+   "latency_s": 37.24,
+   "retries": 0,
+   "truncated": false,
+   "salvaged_parse": false,
+   "retried_missing": 0,
+   "salvage_batch_size": null,
+   "failed_ids": [],
+   "status": "ok"
+  },
+  {
+   "ts": "2026-10-15T22:26:32.731160+00:00",
+   "batch_index": "2",
+   "model": "nvidia/nemotron-3.5-lightning:free",
+   "prompt_version": "batch-v2",
+   "listing_count": 8,
+   "status": "call_failed",
+   "error": "router error: {'message': 'Upstream idle timeout exceeded', 'code': 504, 'metadata': {'error_type': 'timeout'}}"
+  }
+ ]
+}
