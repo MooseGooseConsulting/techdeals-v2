@@ -39,16 +39,13 @@ import uuid
 from datetime import datetime, timezone
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731"
-# USD per million tokens (prompt, completion), from the OpenRouter catalog.
+DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free"
+# Free models only by project policy; this is the configured free endpoint.
 MODEL_PRICES = {
-    "deepseek/deepseek-v4-flash-0731": (0.02, 0.64),
-    "deepseek/deepseek-v4-flash": (0.03, 1.28),
-    "openai/gpt-oss-120b": (0.04, 0.17),
-    "qwen/qwen3.8-27b": (0.04, 2.30),
+    "nvidia/nemotron-3.5-lightning:free": (0.0, 0.0),
 }
 
-PROMPT_VERSION = "batch-v1"
+PROMPT_VERSION = "batch-free-v1"
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 # S3: hard batch floor — every LLM call (steady state OR salvage retry) must
 # carry at least MIN_BATCH_SIZE listings; one-listing-per-call is a defect
@@ -375,9 +372,12 @@ class BatchClient:
             "temperature": 0,
             "max_tokens": max_tokens,
             "reasoning": {"enabled": False},
-            "response_format": {"type": "json_schema", "json_schema": {"name": "batch_extraction", "strict": True, "schema": schema}},
             "messages": [
-                {"role": "system", "content": system},
+                {
+                    "role": "system",
+                    "content": system + "\n\nReturn one JSON object matching this output schema:\n"
+                    + json.dumps(schema, ensure_ascii=False),
+                },
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
             ],
         }

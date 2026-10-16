@@ -5,6 +5,12 @@ This is the authoritative briefing for the v2 rebuild. It exists so that any age
 we will know we arrived, and where to find the raw material. Read this before
 planning anything.
 
+Current model policy (owner instruction, 2026-10-15): only
+`nvidia/nemotron-3.5-lightning:free` through OpenRouter is configured. Use free
+models only. Earlier references below to
+cheap models or alternate gateways are historical context, not authorization
+to configure or call them.
+
 ---
 
 ## 0. Hard Parts & Requirements (owner-distilled, read first)
@@ -33,8 +39,9 @@ planning anything.
    to start. The old scrapers keep running where they are. If live capture is ever
    needed here, thin fetchers are written fresh, reusing the old scrapers' logic
    as reference only. The problem to solve is everything after the fetch.
-2. **Batched, cheap LLM parsing** — many listings per call, never one at a time;
-   free/cheap endpoints are fine (OpenRouter, Kilo gateway, LiteLLM — see §6).
+2. **Batched, free-model LLM parsing** — many listings per call, never one at a
+   time. Use free models only; the configured endpoint is
+   `nvidia/nemotron-3.5-lightning:free` through OpenRouter.
 3. **Research before building** — check what databases, processing tooling, and
    existing projects/libraries already do this before inventing anything.
 4. **Greenfield the schema on Neon** — redesign from scratch; do not literally
@@ -56,8 +63,9 @@ planning anything.
   varied set of real shapes.
 - **Store**: Neon Postgres, scratch project (credentials in Doppler
   `apps-data/dev`). Production and the existing cluster are never touched.
-- **Parser**: small/cheap LLM over OpenRouter / Kilo gateway / LiteLLM (keys in
-  Doppler `ai-automation/dev` and `homelab/dev`), invoked in batches.
+- **Parser**: `nvidia/nemotron-3.5-lightning:free` over OpenRouter, invoked in
+  batches. Inject `OPENROUTER_API_KEY` from Doppler; no paid model or alternate
+  model/provider configuration is enabled by default.
 - **Explicitly NOT build targets**: the old schema, the old identity graph, old
   application code. This repo starts as an EMPTY FOLDER — no code is copied from
   TechdealsHandoff. The old repo is read-only reference (fixtures, ADRs, issues,
@@ -360,14 +368,10 @@ If an ingestion step cannot show which query it feeds, it does not get built.
   org picker). Record project/branch IDs here on first write — done. Incluster
   DSNs (`DBHUB_PG_DSN_*` in `homelab/dev`) do NOT resolve off-cluster.
   Never print secret values; `--only-names` to locate, `doppler run` to inject.
-- **LLM endpoints**: Doppler `ai-automation/dev` has OpenRouter, Kilo
-  (`KILO_CODE_API_KEY`, `KILO_GATEWAY_API`), Gemini, Groq, DeepSeek, Mistral,
-  Anthropic, OpenAI. `homelab/dev` additionally has LiteLLM gateway keys — a
-  self-hosted proxy that may be the cheapest batch path. OpenRouter key verified
-  live 2026-10-12 (HTTP 200 on /models); free/near-free batch candidates with 1M
-  context confirmed in catalog: `qwen/qwen3.8-omni-flash` ($0.15/MTok prompt),
-  `deepseek/deepseek-v4.1-flash:batch` tier. Prefer free/cheap tiers; record cost
-  per batch regardless.
+- **LLM endpoint**: use `OPENROUTER_API_KEY` from Doppler `ai-automation/dev`
+  with the configured free endpoint above. Other provider credentials may exist
+  in the secret manager but do not authorize their use here. Paid historical
+  pilots are evidence only; there is no paid model or automatic model fallback.
 - **Local tooling**: `psql` 18.6, `jq`, `curl`, `python3`, `uv` present.
 - **Hard constraint**: do NOT touch the existing production cluster or the old
   databases. Neon is the sandbox.
