@@ -1,24 +1,29 @@
 # schema/ — TechDeals v2 posting-first schema
 
+The migration runner selects the repository-root `schema/` directory when it
+contains `000_functions.sql`, falling back to `src/techdeals/schema/` when the
+root copy is absent. The copies are currently mirrored. The registered files
+are `000_functions.sql`, `010_tables.sql`, and `020_views.sql`; apply them with
+`techdeals migrate`, not a direct `psql -f` sequence, so `_schema_migrations`
+tracks the applied filenames. `techdeals migrate --reset` is destructive and
+only appropriate for a disposable database after confirmation.
+
 Implements BRIEF.md §4 (settled design) for the four §6 target queries:
 
 | Query | View |
 |-------|------|
-| Q1 cheapest N units of spec S available right now | `v_cheapest_available`, `v_category_prices`, `v_line_ram`, `v_group_ram` |
+| Q1 cheapest N units of spec S available right now | `v_cheapest_available`, `v_category_prices`, `v_line_ram` |
 | Q2 what did this cost over time | `v_price_history` |
-| Q3 what is this lot actually worth | `v_lot_worth` (+ `v_product_reference_price`), `v_partout` (+ `v_ddr4_gb_rate`) |
+| Q3 what is this lot actually worth | `v_lot_worth`, `v_product_reference_price` |
 | Q4 what did we miss (quarantined/accounting) | `v_accounting` (+ `v_stale_quarantine`) |
+
+These are the views defined by the registered migrations. `v_group_ram`,
+`v_partout`, and `v_ddr4_gb_rate` are not part of the current schema.
 
 Every table, column, and view names the target query it serves in a SQL
 `COMMENT`. Constructs serving none of the four were not built (the one
 exception found in review — `postings_payload_gin`, which served no query —
 was dropped).
-
-`v_partout` and `v_ddr4_gb_rate` follow
-`docs/adr/0002-partout-price-assumptions.md`. That record is the calculation:
-exact key, minimum ask, out-of-stock comps allowed, one DDR4 pool for the
-rate only, no count gate, and no spread gate. The SQL comments describe the
-formula. They do not replace the ADR.
 
 ## Files (apply in order)
 
@@ -31,8 +36,9 @@ formula. They do not replace the ADR.
    triggers, and insert guards.
 3. `020_views.sql` — the four target-query views plus helpers.
 4. `smoke_test.sql` — self-contained checks inside one ROLLBACK transaction,
-   including the replay-dedupe, ordinal-shift, multi-term-split, and
-   supersession cases (must-fail inserts for each).
+   including replay-dedupe, ordinal-shift, multi-term-split, and supersession
+   cases (must-fail inserts for each). This is a verification script, not a
+   registered migration.
 
 Conventions (BRIEF §4): uuidv7 PKs, timestamptz everywhere, text + CHECK (no
 enum types), append-only ledgers whose ONLY correction path is the
@@ -118,22 +124,18 @@ retains an empty URL plus explicit incomplete provenance.
   `parse_failed` quarantine event inserted on purpose to exercise the
   release path — it is mission evidence, not pipeline data.
 
-## Rebuild steps
+## Applying the schema
 
-Connection strings are secrets: capture into a variable, never print.
-
-```sh
-NEON=/home/coldaine/.local/share/mise/shims/neon
-DB_URL=$("$NEON" connection-string fix-verify --project-id winter-brook-99288103 | head -1)
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f schema/000_functions.sql
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f schema/010_tables.sql
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f schema/020_views.sql
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f schema/smoke_test.sql   # expect NOTICE 'smoke: all checks passed'
-```
-
-To rebuild from scratch on this branch, `DROP SCHEMA public CASCADE; CREATE
-SCHEMA public;` first (a bare `neon branches reset` to anything but the parent
-is rejected by the CLI), then run the four psql commands above.
+`src/techdeals/db/migrations.py` registers and applies `000_functions.sql`,
+`010_tables.sql`, and `020_views.sql` in order, recording each filename in
+`_schema_migrations`. Its `get_schema_dir()` selects the repository-root
+`schema/` directory when present and otherwise falls back to
+`src/techdeals/schema/`; those copies are currently mirrored. Apply registered
+migrations with `techdeals migrate` so migration bookkeeping stays in sync.
+Direct `psql -f` application bypasses that bookkeeping and is not the supported
+application path. `techdeals migrate --reset` drops all tables
+before rebuilding and is only for disposable databases after explicit
+confirmation. The smoke test is run separately against a scratch database.
 
 ## Verification record (2026-10-12, fix mission)
 

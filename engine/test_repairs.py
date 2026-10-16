@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Stdlib checks for empty-label repair, lot-vs-each basis, and identity keys."""
+"""Checks for empty-label repair, lot-vs-each basis, and identity keys.
+
+Run directly with ``python3 engine/test_repairs.py`` or explicitly with
+``pytest engine/test_repairs.py``. The project config limits default pytest
+discovery to ``tests/``.
+"""
 
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ import resolve  # noqa: E402
 
 def expect(cond: bool, message: str) -> None:
     if not cond:
-        raise SystemExit(f"FAIL {message}")
+        raise AssertionError(f"FAIL {message}")
     print(f"PASS {message}")
 
 

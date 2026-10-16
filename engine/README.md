@@ -52,6 +52,15 @@ model slug and recorded cost; it does not establish endpoint availability or
 semantic extraction quality. The earlier paid-model pilot figures below are
 historical measurements and do not validate this free model.
 
+`engine/out/results_label_repair.json` is a historical result from the paid
+`deepseek/deepseek-v4-flash-0731` run, outside the current CLI model allowlist.
+It contains no capture fetch time. Replaying it with `engine/load_results.py`
+uses capture metadata available at replay time; where that metadata has no
+timestamp, the extractor falls back to the capture file's modification time.
+Treat this file as historical evidence only: it does not prove current model
+policy compliance or provenance-faithful replay, and it must not be used as a
+current validated extraction result.
+
 ## What one batch does
 
 1. **Pack** — N condensed captures (field-synonym projection, budgets below)

@@ -8,11 +8,11 @@ A listing is one capture: the raw payload plus where and when it was fetched. It
 
 Posting is the same thing. It is the name used in the schema. It is not a second object.
 
-A capture is that fetch. Provenance is the source, the URL, the fetch time, and a content checksum. Nothing enters without those.
+A capture is one retrieval. A complete capture records its source URL, fetch time, and content checksum. The URL may be empty only when capture metadata explicitly marks `source_url_status` as `incomplete`; this exception does not remove the other provenance requirements.
 
 An extraction is one parse of one listing. A new parse adds an extraction. It does not rewrite the old one. A batch is a collection of extractions handled as one unit.
 
-An offer key identifies the logical offer whose price and availability history is being tracked.
+An offer key identifies an offer subject within one captured posting and its parser replays. Because the posting key includes fetch time, a later recapture gets a different posting and offer key; this key alone does not link history across recaptures.
 
 ## Parts
 
@@ -24,7 +24,7 @@ A sale group is the set of lines that can be bought together in one purchase: th
 
 An offer is a line or a sale group that can be bought at a price. A listing is the evidence. An offer is what is for sale.
 
-An observation is one appended price or availability event. Observations are not edited. A correction points at a later observation.
+An observation is one appended price or availability event. Observations cannot be edited or deleted. A correction appends a later observation and points to it.
 
 Price kind is which fact the number is. These stay separate: ask, bid, sold, cost basis, and reference. A reference is a third-party or list price used for comparison. It is a kind of price, not a role.
 
