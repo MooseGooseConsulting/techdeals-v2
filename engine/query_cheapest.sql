@@ -11,10 +11,14 @@ SELECT '32GB DDR4 RDIMM' AS spec,
        product_key, availability_state
 FROM v_cheapest_available
 WHERE availability_state = 'available'
-  AND price_basis = 'explicit_unit'
+  AND price_basis IN ('explicit_unit', 'homogeneous_division')
   AND (member_line_count IS NULL OR member_line_count = 1)
   AND attributes @> '{"ram_dimm_gb": 32}'::jsonb
   AND COALESCE(attributes->>'ram_type', '') ILIKE '%DDR4%'
+  AND (
+        COALESCE(attributes->>'ram_kind', '') ILIKE '%RDIMM%'
+     OR COALESCE(attributes->>'ram_type', '') ILIKE '%RDIMM%'
+  )
 ORDER BY unit_price NULLS LAST
 LIMIT 5;
 

@@ -122,8 +122,8 @@ def _load_lines(dsn: str) -> list[dict]:
 SELECT json_agg(row_to_json(t)) FROM (
   SELECT l.id AS line_id, l.posting_id, l.label, l.attributes
   FROM lines l
-  JOIN v_current_extractions c ON c.extraction_id = l.extraction_id
-  WHERE l.parent_line_id IS NULL
+  JOIN v_current_extractions c ON c.posting_id = l.posting_id
+                               AND c.extraction_id = l.extraction_id
 ) t;
 """
     rows = extract.run_psql(dsn, sql)
@@ -165,6 +165,20 @@ def _write(dsn: str, inserts: list[dict], supersede: list[dict]) -> None:
 BEGIN;
 CREATE TEMP TABLE _src AS
   SELECT convert_from(decode('{doc}','base64'),'UTF8')::jsonb AS d;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM _src x
+    CROSS JOIN LATERAL jsonb_array_elements(x.d->'inserts') AS items(doc)
+    LEFT JOIN lines l ON l.id = (doc->>'line_id')::uuid
+                     AND l.posting_id = (doc->>'posting_id')::uuid
+    WHERE l.id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'resolution line must belong to the stated posting';
+  END IF;
+END
+$$;
 INSERT INTO resolutions (id, posting_id, line_id, product_key, product_name, confidence, method)
 SELECT (s->>'id')::uuid, (s->>'posting_id')::uuid, (s->>'line_id')::uuid,
        s->>'product_key', s->>'product_name', (s->>'confidence')::numeric, s->>'method'
