@@ -306,12 +306,6 @@ its applicable returned cells while missing the drive-capacity and NIC errors.
 No database writes occurred, so persistence/query consequences are source-traced
 findings, not claims of reproduced stored output.
 
-The historical diagnostic, input checksums and saved model results are in
-`docs/research/2026-10-15-parsing-review/`. Raw full provider response bytes were
-not retained for that diagnostic. The retained diagnostic and cluster reports
-are historical evidence, not current merge/readiness claims; refresh exact heads
-before publication or mutation.
-
 Execution checkpoint, 2026-10-16: the former personal repository was transferred
 into the organization with its original identity and history. Its three open
 issues were transferred into canonical issues #16–#18. The plan is published

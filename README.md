@@ -24,9 +24,8 @@ This repository remains the canonical destination for reviewed consolidation.
 
 The [brief](BRIEF.md) records the v2 experiment's earlier requirements. Read it
 and the draft plan in light of the project goal and the owner's latest
-instructions. The
-[2026-10-15 review evidence](docs/research/2026-10-15-parsing-review/README.md)
-records known failures and the limits of existing checks. Successful extraction,
+instructions. [Issue #17](https://github.com/MooseGooseConsulting/techdeals-v2/issues/17)
+tracks known parsing failures and the required application proof. Successful extraction,
 passing helper tests, and stored data do not establish correct application
 answers. The packaged CLI and standalone extraction paths are not yet reconciled.
 
