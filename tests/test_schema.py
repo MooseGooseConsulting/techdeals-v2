@@ -26,3 +26,9 @@ def test_schema_files_are_valid_sql() -> None:
 def test_packaged_schema_matches_authoritative_schema() -> None:
     for name in ("000_functions.sql", "010_tables.sql", "020_views.sql"):
         assert (ROOT_SCHEMA_DIR / name).read_bytes() == (PKG_SCHEMA_DIR / name).read_bytes()
+
+
+def test_packaged_smoke_test_matches_authoritative_smoke_test() -> None:
+    assert (ROOT_SCHEMA_DIR / "smoke_test.sql").read_bytes() == (
+        PKG_SCHEMA_DIR / "smoke_test.sql"
+    ).read_bytes()
