@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -82,23 +81,54 @@ def test_source_description_skips_empty_primary_and_supports_aliases() -> None:
     assert extract.source_description({"description": 42, "body": "body alias"}) == "body alias"
 
 
-def test_govdeals_auction_end_is_not_capture_fetch_time(
+def test_govdeals_source_event_time_and_file_mtime_do_not_set_fetch_time(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "govdeals.json"
-    path.write_text(json.dumps({
+    raw = json.dumps({
         "item_id": "g1", "domain": "govdeals",
         "timestamp": "2026-10-08T19:00:00Z",
-    }))
+        "fetched_at": "2026-10-02T00:00:00Z", "capture_time": "2026-10-03T00:00:00Z",
+    })
+    path.write_text(raw)
     monkeypatch.setattr(extract.os.path, "getmtime", lambda _path: 1790000000)
-    loaded, _ = extract.load_listings([str(path)])
-    assert loaded[0]["fetched_at"] == datetime.fromtimestamp(
-        1790000000, timezone.utc
-    ).isoformat()
+    assert extract.capture_fetched_at(json.loads(raw)) is None
+    loaded, skipped = extract.load_listings([str(path)])
+    assert loaded == []
+    assert skipped == [{
+        "client_id": "g1", "path": str(path),
+        "reason": "missing_or_invalid_capture_metadata_fetched_at",
+    }]
+    assert path.read_text() == raw
 
-    explicit = {"domain": "govdeals", "timestamp": "2026-10-08T19:00:00Z",
-                "capture_metadata": {"fetched_at": "2026-10-01T12:30:00Z"}}
-    assert extract.iso_or_now(explicit) == "2026-10-01T12:30:00+00:00"
+
+def test_only_timezone_aware_capture_metadata_fetch_time_is_eligible(tmp_path: Path) -> None:
+    path = tmp_path / "capture.json"
+    valid = {
+        "item_id": "valid", "domain": "govdeals",
+        "timestamp": "2026-10-08T19:00:00Z",
+        "capture_metadata": {"fetched_at": "2026-10-01T12:30:00-05:00"},
+    }
+    path.write_text(json.dumps(valid))
+    loaded, skipped = extract.load_listings([str(path)])
+    assert not skipped
+    assert loaded[0]["fetched_at"] == "2026-10-01T17:30:00+00:00"
+
+    valid["capture_metadata"]["fetched_at"] = "2026-10-01T12:30:00"
+    path.write_text(json.dumps(valid))
+    assert extract.capture_fetched_at(valid) is None
+    loaded, skipped = extract.load_listings([str(path)])
+    assert loaded == []
+    assert skipped[0]["reason"] == "missing_or_invalid_capture_metadata_fetched_at"
+
+
+def test_all_unknown_fetch_times_return_truthful_cli_error(tmp_path: Path, capsys) -> None:
+    path = tmp_path / "capture.json"
+    raw = json.dumps({"item_id": "unknown", "timestamp": "2026-10-01T00:00:00Z"})
+    path.write_text(raw)
+    assert extract.main(["--files", str(path), "--skip-db"]) == 3
+    assert "no eligible captures" in capsys.readouterr().err
+    assert path.read_text() == raw
 
 
 def test_govdeals_adapter_names_auction_event_date() -> None:

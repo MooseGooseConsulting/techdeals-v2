@@ -460,28 +460,22 @@ def sha256_hex(s: str) -> str:
     return hashlib.sha256(s.encode()).hexdigest()
 
 
-def iso_or_now(payload: dict, path: str | None = None) -> str:
-    # A source's `timestamp` may describe an event (for GovDeals, auction close),
-    # not when this capture was fetched. Prefer explicit capture provenance.
+def capture_fetched_at(payload: dict) -> str | None:
+    """Return only documented, timezone-aware fetch provenance.
+
+    Source timestamps, capture file mtimes, and current time are not evidence
+    of when a capture was fetched and must never become observation time.
+    """
     capture_meta = payload.get("capture_metadata")
     ts = (capture_meta.get("fetched_at") if isinstance(capture_meta, dict) else None)
-    ts = ts or payload.get("fetched_at") or payload.get("capture_time")
-    # Legacy capture files use `timestamp` as their fetch time. GovDeals does
-    # not: its adapter's timestamp is the auction end date.
-    if not ts and payload.get("domain") != "govdeals":
-        ts = payload.get("timestamp")
     if isinstance(ts, str):
         try:
             dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            return dt.astimezone(timezone.utc).isoformat()
+            if dt.tzinfo is not None and dt.utcoffset() is not None:
+                return dt.astimezone(timezone.utc).isoformat()
         except ValueError:
-            pass
-    if path:
-        # stable fallback: the capture file's mtime keeps the natural key stable
-        # across replays even for error captures that carry no fetch timestamp
-        dt = datetime.fromtimestamp(os.path.getmtime(path), tz=timezone.utc)
-        return dt.isoformat()
-    return datetime.now(timezone.utc).isoformat()
+            return None
+    return None
 
 
 def uuid7() -> str:
@@ -992,12 +986,11 @@ COMMIT;
 
 
 def load_listings(paths: list[str]) -> tuple[list[dict], list[dict]]:
-    """Load captures; returns (listings, dropped_duplicates).
+    """Load eligible captures; returns (listings, skipped_inputs).
 
-    A repeated client id is NOT silently dropped (BRIEF §3.1: nothing silently
-    dropped) — the second capture is returned to the caller, which reports it
-    to stderr and the ledger. No posting row exists for it yet, so there is
-    nothing to hang a quarantine event on until/unless it is ever ingested.
+    Captures without a timezone-aware ``capture_metadata.fetched_at`` remain
+    untouched on disk and are returned as skips. A repeated client id is also
+    reported rather than silently dropped.
     """
     listings = []
     dropped: list[dict] = []
@@ -1008,14 +1001,21 @@ def load_listings(paths: list[str]) -> tuple[list[dict], list[dict]]:
         if not isinstance(payload, dict):
             continue
         cid = str(payload.get("item_id") or payload.get("product_id") or payload.get("id") or f"idx{idx}")
+        fetched_at = capture_fetched_at(payload)
+        if fetched_at is None:
+            dropped.append({
+                "client_id": cid,
+                "path": path,
+                "reason": "missing_or_invalid_capture_metadata_fetched_at",
+            })
+            continue
         if cid in seen_ids:
-            dropped.append({"client_id": cid, "path": path})
+            dropped.append({"client_id": cid, "path": path, "reason": "duplicate_client_id"})
             continue
         seen_ids.add(cid)
         condensed = condense(payload)
         url = payload.get("url") or payload.get("product_url") or ""
         source = payload.get("domain") or "unknown"
-        fetched_at = iso_or_now(payload, path)
         offer_key = sha256_hex(f"{source}|{url}|{fetched_at}")
         checksum = sha256_hex(canonical_payload(payload))
         listings.append({
@@ -1426,17 +1426,23 @@ def main(argv=None) -> int:
     if args.limit:
         paths = paths[: args.limit]
 
-    listings, dropped_dups = load_listings(paths)
+    listings, input_skips = load_listings(paths)
     for l in listings:
         s = json.dumps(l["condensed"], ensure_ascii=False)
         l["condensed_chars"] = len(s)
 
-    # S9: duplicate client ids are never silently dropped
-    for d in dropped_dups:
-        print(f"input dedupe drop: capture {d['client_id']} from {d['path']} reuses a client id already in this run — "
-              f"skipped, recorded in ledger (no posting row exists to quarantine against)", file=sys.stderr)
+    for skipped in input_skips:
+        print(
+            f"input skipped: capture {skipped['client_id']} from {skipped['path']}: "
+            f"{skipped['reason']}; raw artifact left unchanged",
+            file=sys.stderr,
+        )
 
     print(f"loaded {len(listings)} captures; condensed total {sum(l['condensed_chars'] for l in listings)} chars", file=sys.stderr)
+
+    if not listings:
+        print("no eligible captures: a timezone-aware capture_metadata.fetched_at is required", file=sys.stderr)
+        return 3
 
     if args.dry_run:
         os.makedirs(OUT_DIR, exist_ok=True)
@@ -1461,11 +1467,12 @@ def main(argv=None) -> int:
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     results_out = args.results_out or os.path.join(OUT_DIR, f"results_{run_id}_{args.parser_version}.json")
 
-    for d in dropped_dups:
+    for d in input_skips:
         append_ledger(ledger_path, {
             "ts": datetime.now(timezone.utc).isoformat(), "run_id": run_id,
-            "status": "input_dedupe_drop", "client_id": d["client_id"], "path": d["path"],
-            "note": "second capture with a repeated client id; skipped, not silently dropped (BRIEF 3.1)",
+            "status": "input_skip", "client_id": d["client_id"], "path": d["path"],
+            "reason": d["reason"],
+            "note": "input artifact left unchanged; excluded from extraction and observation writes",
         })
 
     if args.skip_db:
