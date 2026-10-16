@@ -2,7 +2,7 @@
 
 Key design constraints from the brief:
 - NEVER one listing per call. Batching is a requirement, not an optimization.
-- Uses only the authorized free OpenRouter model. Its schema is included in the
+- Defaults to free Nemotron through OpenRouter. Its schema is included in the
   prompt and validated locally because the endpoint does not support JSON mode.
 - Records model + prompt version + cost per batch.
 - Pydantic validation + auto-retry handles cheap model quirks.
@@ -17,7 +17,7 @@ import instructor
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
 
-from techdeals.config import get_settings, require_authorized_llm_model
+from techdeals.config import get_settings
 from techdeals.parser.models import (
     BatchExtractionResponse,
     ExtractionResult,
@@ -60,7 +60,7 @@ async def extract_batch(
         BatchExtractionResponse with results for each listing
     """
     settings = get_settings()
-    model = require_authorized_llm_model(settings.llm_model if model is None else model)
+    model = model or settings.llm_model
     batch_id = f"batch_{int(time.time() * 1000)}"
 
     if not listings:
