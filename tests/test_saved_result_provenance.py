@@ -11,7 +11,7 @@ def _capture(tmp_path, *, price="100", item_id="42", filename="42.json"):
         "item_id": item_id,
         "url": "https://example.test/listing/42",
         "domain": "example.test",
-        "fetched_at": "2026-10-15T12:00:00Z",
+        "capture_metadata": {"fetched_at": "2026-10-15T12:00:00Z"},
         "price": price,
         "title": "Example item",
     }
