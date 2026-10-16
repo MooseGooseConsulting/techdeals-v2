@@ -8,7 +8,7 @@
 -- Constructions that serve none of the four are deliberately absent.
 -- Append-only ledgers: UPDATE/DELETE/TRUNCATE rejected outright EXCEPT the one
 -- permitted correction write — setting superseded_by (supersede_only(),
--- 000_functions.sql) after the superseding row exists.
+-- 000_functions.sql) and inserting its replacement within one transaction.
 
 BEGIN;
 
@@ -78,7 +78,8 @@ CREATE TABLE extractions (
     posting_id  uuid NOT NULL REFERENCES postings (id),
     batch_id    uuid REFERENCES extraction_batches (id),
     parser_name text NOT NULL,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT extractions_id_posting_key UNIQUE (id, posting_id)
 );
 CREATE INDEX extractions_posting_idx ON extractions (posting_id, created_at);
 
@@ -95,19 +96,23 @@ COMMENT ON COLUMN extractions.posting_id  IS 'Serves Q4: which capture was parse
 COMMENT ON COLUMN extractions.batch_id    IS 'Serves Q4: links the parse to its LLM batch for batch-economics accounting; NULL only for parses that ran outside a batch.';
 COMMENT ON COLUMN extractions.parser_name IS 'Serves Q4: which parser produced the lines — replay safety requires identifying the producer.';
 COMMENT ON COLUMN extractions.created_at  IS 'Serves Q4: ordering of parse passes; newest wins in the read views.';
+COMMENT ON CONSTRAINT extractions_id_posting_key ON extractions IS 'Composite target for child-row foreign keys, ensuring an extraction is paired with its own posting.';
 
 -- ------------------------------------------------------------------ lines --
 
 CREATE TABLE lines (
     id                     uuid PRIMARY KEY DEFAULT uuidv7(),
     posting_id             uuid NOT NULL REFERENCES postings (id),
-    extraction_id          uuid NOT NULL REFERENCES extractions (id),
+    extraction_id          uuid NOT NULL,
     parent_line_id         uuid REFERENCES lines (id),
     ordinal                integer NOT NULL CHECK (ordinal >= 1),
     label                  text    NOT NULL,
     stated_quantity        numeric CHECK (stated_quantity IS NULL OR stated_quantity > 0),
     separately_purchasable boolean NOT NULL DEFAULT false,
-    attributes             jsonb   NOT NULL DEFAULT '{}'::jsonb
+    attributes             jsonb   NOT NULL DEFAULT '{}'::jsonb,
+    CONSTRAINT lines_extraction_posting_fk
+        FOREIGN KEY (extraction_id, posting_id) REFERENCES extractions (id, posting_id),
+    CONSTRAINT lines_id_posting_key UNIQUE (id, posting_id)
 );
 -- A line nests only under a line of the same posting and same extraction.
 CREATE UNIQUE INDEX lines_ordinal_unique
@@ -157,15 +162,18 @@ COMMENT ON COLUMN lines.label                   IS 'Serves Q1, Q3: the seller''s
 COMMENT ON COLUMN lines.stated_quantity         IS 'Serves Q1 (the N units behind a price) and Q3 (lot decomposition: the 50-DIMM lot is one line with stated_quantity 50). NULL when the count is not stated — the engine also marks those lines attributes.quantity_stated = false; NULL is never a silent stand-in for 1 (unresolved counts must stay visible, BRIEF §6 "no silent allocation" spirit).';
 COMMENT ON COLUMN lines.separately_purchasable  IS 'Serves Q1: whether the line can be bought on its own or only inside a sale group.';
 COMMENT ON COLUMN lines.attributes              IS 'Serves Q1: extracted spec attributes (the indexed substrate for "spec S" and for dynamic categories — data, not DDL); also feeds Q3 valuation comps.';
+COMMENT ON CONSTRAINT lines_extraction_posting_fk ON lines IS 'Prevents a line from pairing one posting with another posting''s extraction.';
 
 -- ----------------------------------------------------------- sale groups --
 
 CREATE TABLE sale_groups (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
     posting_id    uuid NOT NULL REFERENCES postings (id),
-    extraction_id uuid NOT NULL REFERENCES extractions (id),
+    extraction_id uuid NOT NULL,
     position      integer NOT NULL CHECK (position >= 0),
-    label         text
+    label         text,
+    CONSTRAINT sale_groups_extraction_posting_fk
+        FOREIGN KEY (extraction_id, posting_id) REFERENCES extractions (id, posting_id)
 );
 CREATE INDEX sale_groups_posting_idx ON sale_groups (posting_id, extraction_id);
 -- The group's position is the stable half of its offer natural key
@@ -189,6 +197,7 @@ COMMENT ON COLUMN sale_groups.posting_id    IS 'Serves Q4: provenance of the gro
 COMMENT ON COLUMN sale_groups.extraction_id IS 'Serves Q4: which parse pass produced the group (replay safety).';
 COMMENT ON COLUMN sale_groups.position      IS 'Serves Q1 (offer-key stability): the group''s zero-based position within its extraction pass — the stable half of the offer natural key behind offer_key (sha256(posting natural key | ''|g'' || position)), so replays hash the same logical offer regardless of parser-version group ids.';
 COMMENT ON COLUMN sale_groups.label         IS 'Serves Q1, Q3: what the purchase shape is, as stated by the seller/parser.';
+COMMENT ON CONSTRAINT sale_groups_extraction_posting_fk ON sale_groups IS 'Prevents a sale group from pairing one posting with another posting''s extraction.';
 
 CREATE TABLE sale_group_terms (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -297,7 +306,8 @@ CREATE TABLE price_observations (
     bound_low    numeric CHECK (bound_low IS NULL OR bound_low >= 0),
     bound_high   numeric CHECK (bound_high IS NULL OR bound_high >= 0),
     basis_note   text,
-    superseded_by uuid REFERENCES price_observations (id),
+    superseded_by uuid CONSTRAINT price_observations_superseded_by_fk
+        REFERENCES price_observations (id) DEFERRABLE INITIALLY IMMEDIATE,
     created_at   timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT price_observations_subject_shape CHECK (
         (subject_kind = 'line'       AND line_id       IS NOT NULL AND sale_group_id IS NULL) OR
@@ -327,10 +337,10 @@ CREATE INDEX price_observations_kind_idx    ON price_observations (price_kind, o
 -- Replay-dedupe (H2): the same offer at the same instant with the same kind is
 -- by construction a replay artifact, not a second observation — blocked here.
 -- PARTIAL (live rows only): a replay whose value CHANGES must be recordable.
--- Because observed_at is pinned to the capture's fetch time, such a correction
--- is recorded by first superseding the live row (superseded_by set via
--- supersede_only()), which removes it from this index, then appending the new
--- live row. A full unique index would make that correction impossible forever.
+-- For a same-instant correction, generate a later UUID, defer the self-FK,
+-- point the old row at that UUID, insert the replacement with that id, then
+-- force the FK immediate before commit. The partial index then admits exactly
+-- one live row while retaining the old event.
 CREATE UNIQUE INDEX price_observations_replay_dedupe
     ON price_observations (offer_key, observed_at, price_kind)
     WHERE superseded_by IS NULL;
@@ -342,6 +352,9 @@ CREATE UNIQUE INDEX price_observations_single_supersession
 CREATE TRIGGER price_observations_supersede_update
     BEFORE UPDATE ON price_observations
     FOR EACH ROW EXECUTE FUNCTION supersede_only();
+CREATE CONSTRAINT TRIGGER price_observations_supersede_series
+    AFTER UPDATE ON price_observations DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION supersede_series_guard();
 CREATE TRIGGER price_observations_reject_delete
     BEFORE DELETE ON price_observations
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();
@@ -353,7 +366,7 @@ CREATE TRIGGER price_observations_subject_guard BEFORE INSERT ON price_observati
 CREATE TRIGGER price_observations_offer_key_guard BEFORE INSERT ON price_observations
     FOR EACH ROW EXECUTE FUNCTION observation_offer_key_guard();
 
-COMMENT ON TABLE  price_observations                    IS 'Append-only ledger of price events on lines and sale groups; corrections append a superseding row and point the old row at it via superseded_by (the supersede_only update is the one permitted mutation — everything else is rejected). Serves Q2 (the time series), Q1 (current asks), Q3 (lot ask + per-line basis).';
+COMMENT ON TABLE  price_observations                    IS 'Append-only ledger of price events on lines and sale groups; corrections use one transaction to point the old row at a pre-generated later UUID and insert the replacement, deferring only the self-FK until the row exists (the supersede_only update is the one permitted mutation — everything else is rejected). Serves Q2 (the time series), Q1 (current asks), Q3 (lot ask + per-line basis).';
 COMMENT ON COLUMN price_observations.id                 IS 'Serves Q2: ledger identity; time-ordered by uuidv7.';
 COMMENT ON COLUMN price_observations.offer_key          IS 'Serves Q1, Q2: replay-stable identity of the offer priced — sha256(posting offer_key | ''|'' | subject_path), enforced by the observation_offer_key_guard trigger. Same natural key as the availability ledger, so price and availability join on subject identity.';
 COMMENT ON COLUMN price_observations.subject_path       IS 'Serves Q1, Q2 (offer-key stability): the subject''s stable position path in the capture — ''g<group index>'' for a sale group, ''g<group index>.<ordinal>[.<ordinal>...]'' for a line. Ordinal shifts across parser versions change the path, so a shifted line cannot silently alias the old offer; replays with stable structure hash identically.';
@@ -370,7 +383,7 @@ COMMENT ON COLUMN price_observations.quantity           IS 'Serves Q1, Q3: how m
 COMMENT ON COLUMN price_observations.bound_low          IS 'Serves Q3: lower bound for bound_only rows — ambiguous cases are reported as bounds, never silently allocated; bound_only requires at least one bound (DB CHECK).';
 COMMENT ON COLUMN price_observations.bound_high         IS 'Serves Q3: upper bound for bound_only rows.';
 COMMENT ON COLUMN price_observations.basis_note         IS 'Serves Q3: the recorded basis of any apportionment (what was divided/allocated, and by what rationale).';
-COMMENT ON COLUMN price_observations.superseded_by      IS 'Serves Q2: corrections point forward to the superseding observation, set once via the supersede_only update (superseder must be a strictly later row; single supersession enforced by unique index) — history is never rewritten.';
+COMMENT ON COLUMN price_observations.superseded_by      IS 'Serves Q2: corrections point forward to the superseding observation, set once via the supersede_only update (superseder must be a strictly later row; single supersession enforced by unique index); the self-FK is deferred only during the atomic correction transaction — history is never rewritten.';
 COMMENT ON COLUMN price_observations.created_at         IS 'Serves Q2, Q4: ingest time of the observation.';
 
 -- ------------------------------------------------- availability ledger ----
@@ -434,13 +447,15 @@ COMMENT ON COLUMN availability_observations.created_at    IS 'Serves Q4: ingest 
 CREATE TABLE resolutions (
     id           uuid PRIMARY KEY DEFAULT uuidv7(),
     posting_id   uuid NOT NULL REFERENCES postings (id),
-    line_id      uuid REFERENCES lines (id),
+    line_id      uuid,
     product_key  text NOT NULL,
     product_name text NOT NULL,
     confidence   numeric NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
     method       text NOT NULL,
     superseded_by uuid REFERENCES resolutions (id),
-    created_at   timestamptz NOT NULL DEFAULT now()
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT resolutions_line_posting_fk
+        FOREIGN KEY (line_id, posting_id) REFERENCES lines (id, posting_id)
 );
 CREATE INDEX resolutions_line_idx    ON resolutions (line_id, created_at);
 CREATE INDEX resolutions_product_idx ON resolutions (product_key);
@@ -451,6 +466,9 @@ CREATE UNIQUE INDEX resolutions_single_supersession
 CREATE TRIGGER resolutions_supersede_update
     BEFORE UPDATE ON resolutions
     FOR EACH ROW EXECUTE FUNCTION supersede_only();
+CREATE CONSTRAINT TRIGGER resolutions_supersede_series
+    AFTER UPDATE ON resolutions DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION supersede_series_guard();
 CREATE TRIGGER resolutions_reject_delete
     BEFORE DELETE ON resolutions
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();
@@ -468,6 +486,7 @@ COMMENT ON COLUMN resolutions.confidence   IS 'Serves Q1, Q4: lets consumers wei
 COMMENT ON COLUMN resolutions.method       IS 'Serves Q4: which scorer/model produced the match (re-runnable, reproducible).';
 COMMENT ON COLUMN resolutions.superseded_by IS 'Serves Q4: a later pass supersedes — set once, only pointing at a strictly later row; nothing is rewritten or deleted.';
 COMMENT ON COLUMN resolutions.created_at   IS 'Serves Q4: ordering of resolution passes.';
+COMMENT ON CONSTRAINT resolutions_line_posting_fk ON resolutions IS 'A line-level resolution must carry that line''s posting provenance; NULL line_id denotes a posting-level resolution.';
 
 -- ----------------------------------------------------------- quarantine ---
 
@@ -504,7 +523,8 @@ CREATE TABLE categories (
     id         uuid PRIMARY KEY DEFAULT uuidv7(),
     name       text NOT NULL,
     spec       jsonb NOT NULL,
-    superseded_by uuid REFERENCES categories (id),
+    superseded_by uuid CONSTRAINT categories_superseded_by_fk
+        REFERENCES categories (id) DEFERRABLE INITIALLY IMMEDIATE,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 -- A bad or evolved spec is corrected by appending a new row with the same
@@ -517,6 +537,9 @@ CREATE INDEX categories_spec_gin ON categories USING gin (spec);
 CREATE TRIGGER categories_supersede_update
     BEFORE UPDATE ON categories
     FOR EACH ROW EXECUTE FUNCTION supersede_only();
+CREATE CONSTRAINT TRIGGER categories_supersede_series
+    AFTER UPDATE ON categories DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION supersede_series_guard();
 CREATE TRIGGER categories_reject_delete
     BEFORE DELETE ON categories
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();
@@ -524,7 +547,7 @@ CREATE TRIGGER categories_reject_truncate
     BEFORE TRUNCATE ON categories
     FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation();
 
-COMMENT ON TABLE  categories            IS 'Named specs (dynamic categories) as DATA, not DDL: adding a category is an insert whose spec is a jsonb attribute predicate matched against line attributes (BRIEF §3 acceptance 7, §4 "categories are projections over line attributes"). A wrong spec is corrected by appending a replacement row (same name, live-unique) and superseding the old one via superseded_by — the old row stays as history, consumers read live rows only. Serves Q1 (the "spec S" side of cheapest-N).';
+COMMENT ON TABLE  categories            IS 'Named specs (dynamic categories) as DATA, not DDL: adding a category is an insert whose spec is a jsonb attribute predicate matched against line attributes (BRIEF §3 acceptance 7, §4 "categories are projections over line attributes"). A wrong spec is corrected in one transaction by pointing the old row at a pre-generated later UUID, then inserting a replacement row with the same name while deferring only the self-FK; the old row stays as history, consumers read live rows only. Serves Q1 (the "spec S" side of cheapest-N).';
 COMMENT ON COLUMN categories.id         IS 'Serves Q1: identity of the named spec.';
 COMMENT ON COLUMN categories.name       IS 'Serves Q1: the category name consumers query by (e.g. 32GB DDR4 RDIMM); unique among LIVE rows only, so corrections can reuse the name.';
 COMMENT ON COLUMN categories.spec       IS 'Serves Q1: jsonb attribute predicate (containment) that a line must satisfy to be in the category.';

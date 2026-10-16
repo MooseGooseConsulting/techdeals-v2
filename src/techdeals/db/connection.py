@@ -23,6 +23,8 @@ async def get_pool() -> asyncpg.Pool:
 async def get_async_connection() -> AsyncGenerator[asyncpg.Connection, None]:
     """Yield an async connection from a short-lived pool."""
     pool = await get_pool()
-    async with pool.acquire() as conn:
-        yield conn
-    await pool.close()
+    try:
+        async with pool.acquire() as conn:
+            yield conn
+    finally:
+        await pool.close()

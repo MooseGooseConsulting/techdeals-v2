@@ -230,16 +230,19 @@ CREATE VIEW v_product_reference_price AS
 SELECT product_key,
        min(unit_price) AS ref_unit_price,
        min(bound_low)  AS ref_bound_low,
-       count(*)        AS comparable_count
+       count(*)        AS comparable_count,
+       currency
 FROM v_cheapest_available
 WHERE product_key IS NOT NULL
-GROUP BY product_key;
+  AND availability_state = 'available'
+GROUP BY product_key, currency;
 
-COMMENT ON VIEW  v_product_reference_price         IS 'Q3 helper: cheapest currently-available unit price per resolved product — the (1) that lot lines are priced against.';
+COMMENT ON VIEW  v_product_reference_price         IS 'Q3 helper: cheapest currently-available unit price per resolved product and currency — no implicit exchange conversion.';
 COMMENT ON COLUMN v_product_reference_price.product_key     IS 'Q3: resolved product.';
 COMMENT ON COLUMN v_product_reference_price.ref_unit_price  IS 'Q3: best available market unit price for that product.';
 COMMENT ON COLUMN v_product_reference_price.ref_bound_low   IS 'Q3: best available lower bound when comps are bound_only.';
 COMMENT ON COLUMN v_product_reference_price.comparable_count IS 'Q3: how many comps back the reference (small counts = weak reference).';
+COMMENT ON COLUMN v_product_reference_price.currency IS 'Q3: currency shared by this reference; different currencies are never compared without an explicit conversion.';
 
 CREATE VIEW v_lot_worth AS
 WITH lots AS (
@@ -251,15 +254,31 @@ WITH lots AS (
            o.currency,
            o.amount AS lot_ask,
            o.quantity AS lot_ask_covers_units,
+           CASE
+               -- An explicit per-unit ask on a single-line group scales to
+               -- the units included in one purchase. Unknown coverage stays
+               -- NULL; multi-line bundle asks already cover one bundle.
+               WHEN o.price_basis = 'explicit_unit' AND shape.member_line_count = 1
+                   THEN o.amount / NULLIF(o.quantity, 0) * shape.line_quantity
+               ELSE o.amount
+           END AS lot_ask_comparable_total,
            o.bound_low AS lot_bound_low,
            o.bound_high AS lot_bound_high
     FROM sale_groups sg
+    JOIN postings p             ON p.id = sg.posting_id
     JOIN v_current_extractions c ON c.posting_id = sg.posting_id
                                  AND c.extraction_id = sg.extraction_id
     LEFT JOIN LATERAL (
+        SELECT count(*) AS member_line_count,
+               max(t.line_quantity) AS line_quantity
+        FROM sale_group_terms t
+        WHERE t.sale_group_id = sg.id
+    ) shape ON true
+    LEFT JOIN LATERAL (
         SELECT price_basis, currency, amount, quantity, bound_low, bound_high
         FROM price_observations
-        WHERE subject_kind = 'sale_group' AND sale_group_id = sg.id
+        WHERE subject_kind = 'sale_group'
+          AND offer_key = encode(sha256(convert_to(p.offer_key || '|g' || sg.position::text, 'UTF8')), 'hex')
           AND price_kind = 'ask' AND superseded_by IS NULL
         ORDER BY observed_at DESC, id DESC
         LIMIT 1
@@ -283,13 +302,21 @@ members AS (
         ORDER BY created_at DESC, id DESC
         LIMIT 1
     ) r ON true
-    LEFT JOIN v_product_reference_price ref ON ref.product_key = r.product_key
+    LEFT JOIN LATERAL (
+        SELECT min(ca.unit_price) AS ref_unit_price,
+               min(ca.bound_low) AS ref_bound_low
+        FROM v_cheapest_available ca
+        WHERE ca.product_key = r.product_key
+          AND ca.posting_id <> lt.posting_id
+          AND ca.availability_state = 'available'
+          AND ca.currency = lt.currency
+    ) ref ON true
 ),
 valuation AS (
     SELECT sale_group_id,
            sum(ref_unit_price * line_quantity) AS component_value,
            sum(ref_bound_low  * line_quantity) AS component_value_lower_bound,
-           count(*) FILTER (WHERE ref_unit_price IS NOT NULL) AS lines_valued,
+           count(*) FILTER (WHERE ref_unit_price IS NOT NULL AND line_quantity IS NOT NULL) AS lines_valued,
            count(*) AS lines_total
     FROM members
     GROUP BY sale_group_id
@@ -302,9 +329,11 @@ SELECT lt.sale_group_id,
        lt.lot_bound_low, lt.lot_bound_high,
        v.component_value,
        v.component_value_lower_bound,
-       v.lines_valued, v.lines_total,
-       (v.lines_valued < v.lines_total) AS valuation_incomplete,
-       lt.lot_ask - v.component_value   AS ask_minus_component_value
+       COALESCE(v.lines_valued, 0) AS lines_valued,
+       COALESCE(v.lines_total, 0) AS lines_total,
+       COALESCE(v.lines_valued < v.lines_total, true) AS valuation_incomplete,
+       lt.lot_ask_comparable_total - v.component_value AS ask_minus_component_value,
+       lt.lot_ask_comparable_total
 FROM lots lt
 LEFT JOIN valuation v ON v.sale_group_id = lt.sale_group_id
 ORDER BY lt.sale_group_id;
@@ -315,8 +344,9 @@ COMMENT ON COLUMN v_lot_worth.component_value             IS 'Q3: sum of per-lin
 COMMENT ON COLUMN v_lot_worth.component_value_lower_bound IS 'Q3: sum of per-line lower bounds — conservative floor.';
 COMMENT ON COLUMN v_lot_worth.lines_valued                IS 'Q3: how many lines got a reference price (resolution + comps existed).';
 COMMENT ON COLUMN v_lot_worth.lines_total                 IS 'Q3: denominator — all member lines.';
-COMMENT ON COLUMN v_lot_worth.valuation_incomplete        IS 'Q3: true when some lines could not be valued; the answer states its gaps instead of hiding them.';
-COMMENT ON COLUMN v_lot_worth.ask_minus_component_value   IS 'Q3: deal premium/discount of the lot ask versus component values.';
+COMMENT ON COLUMN v_lot_worth.valuation_incomplete        IS 'Q3: true when some lines could not be valued or the group has no member terms; an empty decomposition is never claimed complete.';
+COMMENT ON COLUMN v_lot_worth.ask_minus_component_value   IS 'Q3: deal premium/discount of the comparable whole-purchase ask versus component values; NULL when an explicit single-line unit ask cannot be normalized because unit coverage is unknown.';
+COMMENT ON COLUMN v_lot_worth.lot_ask_comparable_total    IS 'Q3: derived ask for the full purchase: explicit per-unit asks on single-line groups are normalized by the stated amount coverage and member quantity; raw lot_ask remains available.';
 
 -- -------------------------------------------- Q4: what did we miss / accounting --
 
@@ -399,6 +429,7 @@ line_quarantine AS (
 quarantine AS (
     SELECT DISTINCT ON (posting_id) posting_id, state, reason, detail
     FROM quarantine_events
+    WHERE line_id IS NULL
     ORDER BY posting_id, created_at DESC, id DESC
 )
 SELECT p.id          AS posting_id,
@@ -514,5 +545,6 @@ FROM child_agg;
 COMMENT ON VIEW  v_line_ram                     IS 'Q1: ram_total_gb derived from stated factors only — own (stated_quantity × ram_dimm_gb) or the all-children sum when every child states both factors. NULL when anything is unstated; serves the spec-S filter for RAM capacity without storing a derived attribute.';
 COMMENT ON COLUMN v_line_ram.line_id             IS 'Q1: the top-level line the RAM total belongs to.';
 COMMENT ON COLUMN v_line_ram.ram_total_gb        IS 'Q1: derived total GB — own factors when the line states them, else the sum over children when ALL children state count × per-module size; NULL otherwise (never guessed).';
+
 
 COMMIT;

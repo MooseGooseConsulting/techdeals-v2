@@ -10,6 +10,10 @@ Runtime credentials are injected into the process environment by Doppler; use
 the existing `just` recipes and the standalone engine's documented `doppler run`
 commands. The application does not automatically read a local `.env` file.
 The free-model defaults are committed in the parser configuration and engine.
+`just extract` currently reports that packaged extraction is unavailable and
+exits 2. It does not invoke the parser or make a model request. Use the standalone
+engine instructions for the current experimental extraction path; reconciling
+these paths and their required credentials remains integration work.
 
 The [draft execution and integration plan](docs/plans/parsing-usefulness-and-integration.md)
 records proposed work for repository consolidation, all known open PRs/issues, review follow-through,

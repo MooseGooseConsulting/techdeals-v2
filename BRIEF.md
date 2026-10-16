@@ -147,7 +147,9 @@ pipeline and querying the result must show ALL of these:
    "cheapest 32GB DDR4 available right now" is a simple indexed query.
 5. **Lazy identity**: unresolved postings appear in read views immediately;
    resolution is a separate, re-runnable, confidence-scored pass that never
-   rewrites history (`offer_key` stable across parser replays).
+   rewrites history. Current observation keys use group/line position paths, so
+   replay stability is limited to unchanged ordering; position-independent
+   identity across reordered results remains tracked implementation work.
 6. **Batch economics**: the engine consumes listings in configurable batches per
    LLM call (target: dozens per call), runs on free endpoints only, and records
    model + prompt version + cost per batch.
@@ -166,8 +168,11 @@ pipeline and querying the result must show ALL of these:
     `separately_purchasable` flag.
   - *Sale groups/terms*: what can actually be bought together;
     `price_basis ∈ {explicit_unit, homogeneous_division, bound_only, allocated}`.
-  - *Observations*: append-only price/availability events; replay-stable
-    `offer_key = sha256(natural key)`; corrections via supersession, never UPDATE.
+  - *Observations*: append-only price/availability events; `offer_key` identifies
+    the logical offer using the current group/line position path, so it stays
+    stable only while parsed ordering is unchanged; corrections via supersession,
+    never UPDATE. Position-independent identity across reordered results remains
+    tracked implementation work.
   - *Resolutions*: candidate product matches, confidence-scored, re-runnable,
     never a write gate.
   - *Categories*: projections/views over line attributes — data, not DDL.
@@ -296,13 +301,10 @@ shapes 5 + 8's firstFound/lastSeen.
 
 ## 6. Acceptance contract (what workers optimize toward and how they stay on track)
 
-Authority note: the product North Star is `TechdealsHandoff/docs/NORTH_STAR.md`
-(owner-authored, living; that repo's AGENTS.md forbids inventing a second review
-contract). This section is subordinate to it — the v2 acceptance contract: the
-target the schema and ingestion work is scored against, nothing more.
-
-The single target that keeps schema and ingestion work from drifting. Every
-design choice is scored against it.
+Design basis: [the project goal](docs/project-goal.md) governs this experiment.
+The query set below and the production North Star are reference proposals to
+evaluate against original evidence and useful consumer answers. Neither an
+existing schema nor a production document establishes the correct design.
 
 ### The target query set
 
@@ -402,7 +404,8 @@ If an ingestion step cannot show which query it feeds, it does not get built.
 - **Domain modeling is active**: root `GLOSSARY.md` holds canonical terms only
   (zero implementation details); `docs/adr/NNNN-*.md` records a decision only when
   it is hard to reverse, surprising without context, AND the result of a real
-  trade-off. Formats: `/home/coldaine/.agents/skills/domain-modeling/`.
+  trade-off. The glossary's format is free. The domain-modeling skill is optional
+  and does not override the owner's words.
 - **Tower mode**: the control tower plans missions with disjoint scopes, spawns
   workers into git worktrees, routes reviews, and merges. Mission briefings carry
   this document plus the owner's verbatim quotes relevant to the mission.

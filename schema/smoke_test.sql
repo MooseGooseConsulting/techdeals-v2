@@ -225,6 +225,9 @@ DECLARE
     v_line    uuid;
     v_old     uuid;
     v_new     uuid;
+    v_old_resolution uuid;
+    v_new_resolution uuid;
+    v_observed_at timestamptz := now();
     v_caught  boolean;
 BEGIN
     INSERT INTO postings (offer_key, source, url, fetched_at, checksum, payload)
@@ -239,21 +242,24 @@ BEGIN
         (offer_key, subject_path, posting_id, subject_kind, line_id, observed_at,
          price_kind, price_basis, amount, currency, quantity)
     VALUES (encode(sha256(convert_to(repeat('9', 64) || '|g0.1', 'UTF8')), 'hex'),
-            'g0.1', v_posting, 'line', v_line, now(),
+            'g0.1', v_posting, 'line', v_line, v_observed_at,
             'ask', 'explicit_unit', 10.00, 'USD', 1)
     RETURNING id INTO v_old;
-    -- a uuidv7 ms tick later so the superseder is provably the later row
+    -- Generate the later UUID, then point at it before inserting its row.
+    -- Deferring only the self-FK allows the partial live-row replay index to
+    -- admit the replacement with the exact same capture timestamp and key.
     PERFORM pg_sleep(0.003);
+    v_new := uuidv7();
+    SET CONSTRAINTS price_observations_superseded_by_fk DEFERRED;
+    UPDATE price_observations SET superseded_by = v_new WHERE id = v_old;
     INSERT INTO price_observations
-        (offer_key, subject_path, posting_id, subject_kind, line_id, observed_at,
+        (id, offer_key, subject_path, posting_id, subject_kind, line_id, observed_at,
          price_kind, price_basis, amount, currency, quantity)
-    VALUES (encode(sha256(convert_to(repeat('9', 64) || '|g0.1', 'UTF8')), 'hex'),
-            'g0.1', v_posting, 'line', v_line, now() + interval '1 hour',
+    VALUES (v_new, encode(sha256(convert_to(repeat('9', 64) || '|g0.1', 'UTF8')), 'hex'),
+            'g0.1', v_posting, 'line', v_line, v_observed_at,
             'ask', 'explicit_unit', 12.00, 'USD', 1)
     RETURNING id INTO v_new;
-
-    -- the one permitted update: point the old row at its later superseder
-    UPDATE price_observations SET superseded_by = v_new WHERE id = v_old;
+    SET CONSTRAINTS price_observations_superseded_by_fk IMMEDIATE;
 
     -- second supersession attempt (already superseded) is rejected
     v_caught := false;
@@ -268,6 +274,17 @@ BEGIN
         UPDATE price_observations SET amount = 99 WHERE id = v_new;
     EXCEPTION WHEN OTHERS THEN v_caught := true; END;
     IF NOT v_caught THEN RAISE EXCEPTION 'smoke fail: non-pointer UPDATE on price_observations allowed'; END IF;
+
+    -- Product candidate and method may change, but a resolution must stay on
+    -- the same posting/line series.
+    INSERT INTO resolutions (posting_id, line_id, product_key, product_name, confidence, method)
+    VALUES (v_posting, v_line, 'smoke-old-product', 'Old candidate', 0.7, 'smoke-v1')
+    RETURNING id INTO v_old_resolution;
+    INSERT INTO resolutions (posting_id, line_id, product_key, product_name, confidence, method)
+    VALUES (v_posting, v_line, 'smoke-new-product', 'New candidate', 0.9, 'smoke-v2')
+    RETURNING id INTO v_new_resolution;
+    UPDATE resolutions SET superseded_by = v_new_resolution WHERE id = v_old_resolution;
+    SET CONSTRAINTS resolutions_supersede_series IMMEDIATE;
 END
 $smoke$;
 
@@ -397,12 +414,15 @@ BEGIN
     EXCEPTION WHEN OTHERS THEN v_caught := true; END;
     IF NOT v_caught THEN RAISE EXCEPTION 'smoke fail: duplicate live category name accepted'; END IF;
 
-    -- correction: append replacement, then supersede the old row (the one
-    -- permitted update; name uniqueness frees up once the old row is history)
-    INSERT INTO categories (name, spec) VALUES ('32GB DDR4 RDIMM v2', '{"capacity_gb":32,"type":"DDR4"}'::jsonb)
-    RETURNING id INTO v_cat2;
+    -- Correction transaction: defer the self-FK, point the old row to a later
+    -- UUID, then append a replacement with the same live name.
     PERFORM pg_sleep(0.003);
+    v_cat2 := uuidv7();
+    SET CONSTRAINTS categories_superseded_by_fk DEFERRED;
     UPDATE categories SET superseded_by = v_cat2 WHERE id = v_cat1;
+    INSERT INTO categories (id, name, spec)
+    VALUES (v_cat2, '32GB DDR4 RDIMM', '{"capacity_gb":32,"type":"DDR4"}'::jsonb);
+    SET CONSTRAINTS categories_superseded_by_fk IMMEDIATE;
     v_caught := false;
     BEGIN
         UPDATE categories SET superseded_by = v_cat2 WHERE id = v_cat1;  -- again

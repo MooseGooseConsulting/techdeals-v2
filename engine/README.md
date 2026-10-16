@@ -24,6 +24,18 @@ in the prompt and existing local parsing/validation remains in use. This policy
 does not establish semantic parsing quality. The paid pilot measurements and
 results retained below are historical evidence, not active configuration.
 
+## Current proof boundary
+
+This remains an experimental path. Input requires an explicit timezone-aware
+`capture_metadata.fetched_at`; incomplete-time artifacts are reported and left
+unchanged, not assigned a source-date or mtime fallback. Safe saved-result replay
+requires the v2 checksum/key envelope. Group-price replay has narrow regression
+coverage; line-priced replay remains unsupported under issue #20. The packaged
+CLI's `extract` command explicitly exits 2 because its persistence path is
+unavailable. See [consolidation decisions](../docs/research/2026-10-15-parsing-review/consolidation-status.md)
+for retained and deferred scope. Passing SQL and local tests do not establish
+semantic parsing quality or correct consumer answers.
+
 ## How to run
 
 ```bash
@@ -60,9 +72,10 @@ Dependencies: python3 stdlib + `psql` on PATH.
    into one user message: `{"listings":[{id, ...fields}...]}`. Stable ids are
    the capture's natural item id (or `idxN`), so per-listing verdicts are
    addressable across replays.
-2. **Call** — one chat-completions call, temperature 0,
-   `response_format: json_schema strict`. The system prompt (fixed =
-   `PROMPT_VERSION`) carries the extraction policy: purchase-shape semantics
+2. **Call** — one chat-completions call, temperature 0. The complete output
+   schema is included in the system prompt and results are locally validated. The
+   system prompt (fixed = `PROMPT_VERSION`) carries the extraction policy:
+   purchase-shape semantics
    (sale groups / lines / quantities, absorbed from PR #222's
    options-nodes-memberships), never-allocate-lot-price, null-instead-of-
    guessing, description-beats-title conflicts, untrusted-input discipline.
@@ -101,9 +114,8 @@ Dependencies: python3 stdlib + `psql` on PATH.
 - Latency is the real tax: bigger batches are fewer calls but longer calls
   (~3 min for 20 listings on deepseek-flash-tier models). For wall-clock-bound
   ingest, run batches concurrently; for cost-bound ingest, bigger is better.
-- The current free endpoint receives its schema through the prompt rather than
-  an unsupported `response_format` parameter. Local parsing, validation and
-  failure accounting still apply.
+- The current free endpoint receives its schema through the prompt. Local
+  parsing, validation and failure accounting still apply.
 
 ## Historical paid-pilot cost-per-listing math
 

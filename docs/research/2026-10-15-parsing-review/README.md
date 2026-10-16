@@ -8,6 +8,11 @@ Diagnostic evidence for the [draft execution plan](../../plans/parsing-usefulnes
 - `probes.json`: local constructed failure probes, separate from real model results.
 - `server-scores.md`: original five-field scorer output, preserved to demonstrate its incomplete denominator and semantic coverage. Its 100% fields are not acceptance.
 - `live-summary.json`: all-input outcome counts.
+- `consolidation-status.md`: local integration decisions, reviewed head
+  provenance, deferred replay finding, and validation boundaries.
+- `replay-evidence/line-replay-reproduction.md` and `.sql`: rollback-only
+  proof of the current line-priced observation replay gap and why an ordinal-
+  only remap is unsafe.
 
 Command: standalone `engine/extract.py`, explicit selected files, `--batch-size 8 --max-tokens 32000 --skip-db --parser-version review-free-20261015`; output directory redirected to a temporary review directory. Model: `nvidia/nemotron-3.5-lightning:free`; prompt: `batch-v2`. No DB load, SQL readback, production mutation, or billing verification. The script exited zero despite sixteen request failures. The three Reddit inputs and GovDeals input include fixture evidence; do not count them as independently verified live-source coverage.
 

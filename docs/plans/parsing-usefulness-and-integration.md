@@ -329,3 +329,10 @@ rows are also excluded as capture input. Completing PR review does not complete
 incomplete-evidence intake, semantic parsing, field review or useful query
 acceptance; those remain in issue #17. Both repositories remain active, and no
 archival is planned. Production has not been changed.
+
+Execution checkpoint, PR #19 completion: see the
+[consolidation decisions and verification](../research/2026-10-15-parsing-review/consolidation-status.md)
+for the exact retained, removed and deferred scope. The consolidation preserves
+#21–#23, omits the arbitrary-confidence resolver and experimental part-out
+registration, and supersedes review-import #4 once merged. It does not complete
+the semantic evaluation, incomplete-evidence intake or application-answer gates.
