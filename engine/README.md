@@ -24,6 +24,18 @@ in the prompt and existing local parsing/validation remains in use. This policy
 does not establish semantic parsing quality. The paid pilot measurements and
 results retained below are historical evidence, not active configuration.
 
+## Current proof boundary
+
+This remains an experimental path. Input requires an explicit timezone-aware
+`capture_metadata.fetched_at`; incomplete-time artifacts are reported and left
+unchanged, not assigned a source-date or mtime fallback. Safe saved-result replay
+requires the v2 checksum/key envelope. Group-price replay has narrow regression
+coverage; line-priced replay remains unsupported under issue #20. The packaged
+CLI's `extract` command explicitly exits 2 because its persistence path is
+unavailable. See [consolidation decisions](../docs/research/2026-10-15-parsing-review/consolidation-status.md)
+for retained and deferred scope. Passing SQL and local tests do not establish
+semantic parsing quality or correct consumer answers.
+
 ## How to run
 
 ```bash
