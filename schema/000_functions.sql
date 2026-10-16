@@ -82,6 +82,57 @@ $$;
 COMMENT ON FUNCTION supersede_only() IS
 'UPDATE trigger body for tables with a superseded_by pointer (price_observations, resolutions, categories): permits only NULL->later-row supersession, once. Serves Q2: corrections are appended rows linked forward; nothing else on history is mutable.';
 
+-- A valid forward UUID is necessary but not sufficient: the target must be a
+-- later version in the same logical series. This is a deferred constraint
+-- trigger because price/category replacement rows are inserted after the old
+-- row is pointed at their pre-generated UUID in the same transaction.
+CREATE OR REPLACE FUNCTION supersede_series_guard() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_same_series boolean;
+BEGIN
+    IF NEW.superseded_by IS NULL OR NEW.superseded_by IS NOT DISTINCT FROM OLD.superseded_by THEN
+        RETURN NULL;
+    END IF;
+
+    CASE TG_TABLE_NAME
+        WHEN 'price_observations' THEN
+            SELECT EXISTS (
+                SELECT 1 FROM price_observations newer
+                WHERE newer.id = NEW.superseded_by
+                  AND newer.offer_key = NEW.offer_key
+                  AND newer.price_kind = NEW.price_kind
+            ) INTO v_same_series;
+        WHEN 'resolutions' THEN
+            SELECT EXISTS (
+                SELECT 1 FROM resolutions newer
+                WHERE newer.id = NEW.superseded_by
+                  AND newer.posting_id = NEW.posting_id
+                  AND newer.line_id IS NOT DISTINCT FROM NEW.line_id
+            ) INTO v_same_series;
+        WHEN 'categories' THEN
+            SELECT EXISTS (
+                SELECT 1 FROM categories newer
+                WHERE newer.id = NEW.superseded_by
+                  AND newer.name = NEW.name
+            ) INTO v_same_series;
+        ELSE
+            RAISE EXCEPTION 'supersede_series_guard is not configured for table %', TG_TABLE_NAME
+                USING ERRCODE = 'check_violation';
+    END CASE;
+
+    IF NOT COALESCE(v_same_series, false) THEN
+        RAISE EXCEPTION '%: superseder % must belong to the same logical series as row %',
+            TG_TABLE_NAME, NEW.superseded_by, OLD.id
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION supersede_series_guard() IS
+'Deferred integrity guard for superseded_by links: prices stay within (offer_key, price_kind), resolutions within (posting_id, line_id), and categories within name. Deferred execution supports the atomic same-key correction transaction while preventing cross-series removal from current views.';
+
 -- Writer-contract guard for the observation offer_key: the writer must derive
 -- offer_key = sha256(posting.offer_key || '|' || subject_path). subject_path is
 -- the stable position path of the subject inside the capture ('g<group index>'

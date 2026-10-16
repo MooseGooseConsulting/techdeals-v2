@@ -8,7 +8,9 @@ are `000_functions.sql`, `010_tables.sql`, and `020_views.sql`; apply them with
 tracks the applied filenames. `techdeals migrate --reset` is destructive and
 only appropriate for a disposable database after confirmation.
 
-Implements BRIEF.md §4 (settled design) for the four §6 target queries:
+Implements the current experimental representation for four candidate queries.
+[The project goal](../docs/project-goal.md) governs evaluation; these views and
+their SQL comments do not establish semantic correctness:
 
 | Query | View |
 |-------|------|
@@ -21,9 +23,8 @@ These are the views defined by the registered migrations. `v_group_ram`,
 `v_partout`, and `v_ddr4_gb_rate` are not part of the current schema.
 
 Every table, column, and view names the target query it serves in a SQL
-`COMMENT`. Constructs serving none of the four were not built (the one
-exception found in review — `postings_payload_gin`, which served no query —
-was dropped).
+`COMMENT`. That mapping records design intent; it is not proof that a field or view is
+useful or correct. The field review remains open in issue #17.
 
 ## Files (apply in order)
 

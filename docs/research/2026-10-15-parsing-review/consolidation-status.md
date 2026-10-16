@@ -1,92 +1,73 @@
-# Consolidation candidate status
+# PR #19 consolidation decisions and verification
 
-Status: local integration candidate, based on canonical `main` at
-`6160fb4cac816289f15c47df15fd8c5561e20119`. This document records the reviewed
-material included so far; it is not a merge, deployment, or semantic-acceptance
-claim. The integration branch remains local.
+This is the bounded consolidation of the organization and review-import work,
+based on canonical main `4517f952299855a25a4f5cc3df745ae6d6073b8b`.
+[The project goal](../../project-goal.md) governs the design. Existing production
+and v2 schemas are implementations to assess, not authorities.
 
-## Included reviewed material
+## Retain
 
-- PR #3 glossary/brief wording at `3ae8d9e`.
-- PR #4 schema and intake alignment at `10303de`, with follow-ups `8c497d6`
-  and `8a86858` for migration preflight, CLI status, exact payload provenance,
-  and incomplete URL handling.
-- PR #5 source collection plan at `23c61bf`, including the explicit gate for
-  the standalone extractor's unknown-time fallback before any database pilot.
-- PR #6 cluster audit evidence at `148e74c`.
-- PR #7 model capability handling at `781c6fe`, stricter sale-group validation
-  at `73aa641`, required outcome validation at `71c67d4`, blank component label
-  failure handling at `51a530b`, price contract validation at `1c76116`, and
-  price-basis/batch safeguards at `0c3a7ef`.
-- Resolver/query adjustments at `0bca9b3`, saved-result provenance handling at
-  `acc96fc`, and documentation updates at `9bcd86b`.
-- View corrections at `2b02cb4` for available inventory, self-comps, missing
-  quantity, group replay asks, per-unit versus whole-lot basis, and posting-level
-  quarantine. The reviewed `v_group_ram`, `v_ddr4_gb_rate`, and `v_partout`
-  analytical views are also retained from PR #4. They are candidate analytical
-  logic, not semantically accepted valuation. Line-price, line-availability,
-  and accounting-view replay support remain deferred.
-- Atomic same-key price/category supersession at `e4221e2`, with rollback-only
-  proof at `339e08f`.
-- Canonical PR #15 remains in `main`; its newer execution checkpoint and
-  263-artifact fetch-time limitation are retained from the canonical base.
+- Import PR #3 terminology, #5 source inventory and #6 audit evidence, with
+  provenance and historical-evidence limits. These documents are inputs to the
+  experiment, not proof of working application answers.
+- PR #4's useful schema/package alignment, exact raw-payload envelopes,
+  source-URL disposition, explicit fetch provenance, migration preflight,
+  available-only CLI query, quarantine reporting, and honest exit statuses.
+  The unused old packaged migration files are removed. Legacy databases are
+  rejected before DDL and preserved; in-place data conversion is not implemented.
+- Standalone extraction result validation: malformed groups, ambiguous blank
+  components, missing price meaning, invalid quantities and malformed outcomes
+  cannot silently become successful stored interpretations. A missing single
+  product label may use its capture title, with that origin recorded. These
+  checks establish narrow contracts, not semantic accuracy.
+- Saved-result replay bound to both capture checksum and posting offer key;
+  positive chunk sizing and mismatch rejection precede writes. Historical
+  unbound result files remain evidence and cannot use this replay loader.
+- Current experimental view fixes: available and same-currency comparables,
+  exclusion of the valued posting from its own lot comps, incomplete unknown
+  quantities, normalized whole-lot ask, current group-key readback, zero-line
+  extraction accounting, and posting versus line quarantine separation.
+- Database ownership constraints tie lines and groups to their extraction's
+  posting, and line resolutions to their posting. Deferred supersession checks
+  prevent links to another price, resolution, or category series while allowing
+  atomic same-key correction. See the rollback regression SQL.
+- The already merged goal document (#21), free-model configuration (#22), and
+  Doppler environment workflow (#23). No model rejection guard or allowlist
+  test is retained. Parser defaults remain free; no local `.env` is loaded.
 
-The canonical lockfile and lock dependency set remain from `main`. Root and
-packaged migrations `000_functions.sql`, `010_tables.sql`, and `020_views.sql`
-are kept byte-identical. Canonical tests are retained, and
-`tests/acceptance_queries.sql` now targets the posting-first schema.
+## Remove or defer
 
-## Decisions and limits
+| Material | Decision and reason |
+|---|---|
+| New `engine/resolve.py` and its example query | Omit from this merge. The proposed product keys merge materially different configurations, and constants 0.6/0.9 are not measured confidence. Fixing nested-line handling or concurrency would not establish useful matching. Prototype remains in git at `efe642e39eb28c1b6482ee5b2dd6f2ecbe5945f1`; issue #17 owns a justified replacement. Tests specific to this omitted implementation are omitted with it. |
+| `v_group_ram`, `v_ddr4_gb_rate`, `v_partout` | Defer registration. Their comparison cohorts, currency, availability, purchased quantities and rate assumptions are unproved. Exact proposal retained in [deferred-partout-proposal.sql](deferred-partout-proposal.sql); issue #16 owns re-entry. Existing `v_line_ram` remains. |
+| New paid-model repair output and ledger additions | Omit. Existing historical pilots remain clearly historical. These extra outputs do not validate the configured free model or faithful replay. |
+| Runtime model enforcement and policy guard tests | Remove as explicitly rejected by the owner. Document policy and commit free defaults; preserve existing override interfaces. |
+| Line-priced replay remapping | Defer under [issue #20](https://github.com/MooseGooseConsulting/techdeals-v2/issues/20). The [reproduction](replay-evidence/line-replay-reproduction.md) shows prices disappearing after fresh line IDs. Group-key readback is repaired; no guessed ordinal remap is introduced. The active standalone writer emits group prices. Line-priced replay is not a supported claim. |
+| Globally extending posting identity with collection member ID/type | Reject the proposed blanket fix. Collection members can be projections of the same captured page. Splitting them changes capture identity without a demonstrated discriminator contract. Distinct same-URL/time artifacts remain an issue #17 identity design question. |
 
-The capture contract requires a nonempty source listing ID. A missing source URL
-is accepted only with explicit `source_url_status: incomplete` metadata. Loaders
-accept only timezone-aware `capture_metadata.fetched_at`; source update,
-publication, auction-end, and file-modification times do not establish retrieval
-time. The current normalized source artifacts lack proven fetch time, so loaders
-skip them with notices and preserve their raw artifacts. No fetch date is
-invented.
+Import PR #4 is superseded by this bounded canonical change once #19 lands;
+merging the older import branch independently would duplicate its schema work.
+Closing it does not declare its deferred line replay or valuation work solved.
+Both repositories remain active.
 
-The standalone extractor still contains an `iso_or_now` file-mtime fallback.
-The source collection plan now blocks database readback until the helper and
-intake/write path can preserve unknown fetch time without producing dated price
-or availability observations. The current live diagnostic is evidence only;
-it does not establish successful persistence or correct application answers.
+## Verification on 2026-10-16
 
-A rollback-only Neon reproduction demonstrates that a line-priced observation
-can disappear from the current read view after replay assigns a new line UUID.
-The proposed ordinal-only remap was rejected because the schema does not define
-or enforce how group position maps into a line identity path. Guessing could
-attach an observation to the wrong component. The finding is linked to
-[canonical issue #20](https://github.com/MooseGooseConsulting/techdeals-v2/issues/20);
-the reproduction and limitations are recorded in
-[`replay-evidence/line-replay-reproduction.md`](replay-evidence/line-replay-reproduction.md).
-Line-priced replay support remains deferred until the identity/path contract is
-explicit and enforced.
+- `uv run --extra dev pytest -q tests engine/test_repairs.py`: 96 passed.
+- Ruff on `src` and `tests`, `uv lock --check`, schema byte parity and
+  `git diff --check`: passed. No dependency versions or lint thresholds lowered.
+- Existing Neon project `winter-brook-99288103`, temporary branch
+  `pr-review-20261016` (`br-morning-lab-b4rc55s8`), new isolated database
+  `pr19_completion_20261016`: all 256 baseline SQL statements applied.
+- `schema/smoke_test.sql`, supersession, integrity and view feedback regressions
+  passed in rollback transactions. Diagnostic query SQL executed; final counts
+  remained zero. This verifies schema and synthetic regressions, not real-source
+  acquisition or complete parsing/application answers.
 
-The proposal to add source collection-member IDs to the global posting key was
-also rejected. Collection members that are projections of the same page capture
-must remain one posting; splitting them would change capture identity without an
-approved discriminator contract. Distinct artifacts that share source, URL, and
-capture time remain a broader identity question for issue #17.
-
-Price and category self-references are deferrable only when explicitly deferred
-within a correction transaction. The partial unique indexes continue to enforce
-one live row per offer/timestamp/kind or category name; no exclusion constraint
-or extension was added. Schema smoke coverage and a rollback-only Neon proof
-exercise same-key replacement; see
-[`supersession-deferrable-fk-proof.md`](supersession-deferrable-fk-proof.md).
-
-## Verification boundary
-
-The combined local suite, lock check, acceptance SQL review, and schema parity
-checks establish repository consistency only. They do not establish line-priced
-replay correctness, live-source coverage, complete capture-to-query behavior,
-semantic quality, or production readiness. Both repositories remain active;
-no archive or production change is part of this candidate.
-
-At the current integration checkpoint, 84 tests pass, `uv lock --check` passes,
-and root/package migration and smoke-test parity is 4/4. `git diff --check` is clean. Full Ruff
-reported the same 148 existing diagnostics as canonical main before integration
-(120 E501, 24 E741, 2 I001, 1 W292, 1 F841); no lint suppression or wholesale
-prompt reformat was applied. The SQL acceptance files were updated to the
-posting-first schema but were not executed against Neon in this worktree.
+No live model call, production write, deployment or source schedule was part of
+this consolidation. None of the 263 normalized artifacts proves original fetch
+time. Strict intake leaves those artifacts unchanged and reports them skipped;
+that still does not provide the queryable incomplete-evidence path the goal
+requires. Issues #16–#20 retain valuation, semantic correctness, availability and
+identity work. The next design task is to select one capture-to-consumer path
+and prove varied annotated examples through it before production incorporation.

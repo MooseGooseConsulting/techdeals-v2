@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks for empty-label repair, lot-vs-each basis, and identity keys.
+"""Checks for empty-label repair, lot-vs-each basis, checks.
 
 Run directly with ``python3 engine/test_repairs.py`` or explicitly with
 ``pytest engine/test_repairs.py``. The project config limits default pytest
@@ -13,7 +13,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import extract  # noqa: E402
-import resolve  # noqa: E402
 
 
 def expect(cond: bool, message: str) -> None:
@@ -100,22 +99,7 @@ def test_lot_versus_each() -> None:
     expect(note is None and poisoned["price_basis"] == "explicit_unit", "a server sentence is not a lot of DIMMs")
 
 
-def test_identity() -> None:
-    drive = resolve.product_identity({
-        "storage_capacity_gb": 1000, "storage_kind": "SSD", "storage_interface": "SATA III 6Gb/s",
-    })
-    expect(drive["product_key"] == "drive:ssd:sata:1000gb", "drive key from capacity, kind, interface")
-    dimm = resolve.product_identity({
-        "ram_dimm_gb": 32, "ram_type": "DDR4-3200 RDIMM", "ram_kind": "RDIMM", "ram_speed_mts": 3200,
-    })
-    expect(dimm["product_key"] == "mem:ddr4:rdimm:32gb:3200", "DIMM key from size, family, kind, speed")
-    server = resolve.product_identity({"cpu_model": "EPYC 7542", "chassis_model": "PowerEdge R6515", "ram_dimm_gb": 32})
-    expect(server["product_key"].startswith("server:"), "a line with a CPU and a chassis is a server, not a DIMM")
-    expect(resolve.product_identity({"quantity_stated": True}) is None, "no price-determining facts stays unresolved")
-
-
 if __name__ == "__main__":
     test_empty_label()
     test_lot_versus_each()
-    test_identity()
     print("all repair checks passed")

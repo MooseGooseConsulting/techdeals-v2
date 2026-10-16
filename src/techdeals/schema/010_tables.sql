@@ -78,7 +78,8 @@ CREATE TABLE extractions (
     posting_id  uuid NOT NULL REFERENCES postings (id),
     batch_id    uuid REFERENCES extraction_batches (id),
     parser_name text NOT NULL,
-    created_at  timestamptz NOT NULL DEFAULT now()
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT extractions_id_posting_key UNIQUE (id, posting_id)
 );
 CREATE INDEX extractions_posting_idx ON extractions (posting_id, created_at);
 
@@ -95,19 +96,23 @@ COMMENT ON COLUMN extractions.posting_id  IS 'Serves Q4: which capture was parse
 COMMENT ON COLUMN extractions.batch_id    IS 'Serves Q4: links the parse to its LLM batch for batch-economics accounting; NULL only for parses that ran outside a batch.';
 COMMENT ON COLUMN extractions.parser_name IS 'Serves Q4: which parser produced the lines — replay safety requires identifying the producer.';
 COMMENT ON COLUMN extractions.created_at  IS 'Serves Q4: ordering of parse passes; newest wins in the read views.';
+COMMENT ON CONSTRAINT extractions_id_posting_key ON extractions IS 'Composite target for child-row foreign keys, ensuring an extraction is paired with its own posting.';
 
 -- ------------------------------------------------------------------ lines --
 
 CREATE TABLE lines (
     id                     uuid PRIMARY KEY DEFAULT uuidv7(),
     posting_id             uuid NOT NULL REFERENCES postings (id),
-    extraction_id          uuid NOT NULL REFERENCES extractions (id),
+    extraction_id          uuid NOT NULL,
     parent_line_id         uuid REFERENCES lines (id),
     ordinal                integer NOT NULL CHECK (ordinal >= 1),
     label                  text    NOT NULL,
     stated_quantity        numeric CHECK (stated_quantity IS NULL OR stated_quantity > 0),
     separately_purchasable boolean NOT NULL DEFAULT false,
-    attributes             jsonb   NOT NULL DEFAULT '{}'::jsonb
+    attributes             jsonb   NOT NULL DEFAULT '{}'::jsonb,
+    CONSTRAINT lines_extraction_posting_fk
+        FOREIGN KEY (extraction_id, posting_id) REFERENCES extractions (id, posting_id),
+    CONSTRAINT lines_id_posting_key UNIQUE (id, posting_id)
 );
 -- A line nests only under a line of the same posting and same extraction.
 CREATE UNIQUE INDEX lines_ordinal_unique
@@ -157,15 +162,18 @@ COMMENT ON COLUMN lines.label                   IS 'Serves Q1, Q3: the seller''s
 COMMENT ON COLUMN lines.stated_quantity         IS 'Serves Q1 (the N units behind a price) and Q3 (lot decomposition: the 50-DIMM lot is one line with stated_quantity 50). NULL when the count is not stated — the engine also marks those lines attributes.quantity_stated = false; NULL is never a silent stand-in for 1 (unresolved counts must stay visible, BRIEF §6 "no silent allocation" spirit).';
 COMMENT ON COLUMN lines.separately_purchasable  IS 'Serves Q1: whether the line can be bought on its own or only inside a sale group.';
 COMMENT ON COLUMN lines.attributes              IS 'Serves Q1: extracted spec attributes (the indexed substrate for "spec S" and for dynamic categories — data, not DDL); also feeds Q3 valuation comps.';
+COMMENT ON CONSTRAINT lines_extraction_posting_fk ON lines IS 'Prevents a line from pairing one posting with another posting''s extraction.';
 
 -- ----------------------------------------------------------- sale groups --
 
 CREATE TABLE sale_groups (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
     posting_id    uuid NOT NULL REFERENCES postings (id),
-    extraction_id uuid NOT NULL REFERENCES extractions (id),
+    extraction_id uuid NOT NULL,
     position      integer NOT NULL CHECK (position >= 0),
-    label         text
+    label         text,
+    CONSTRAINT sale_groups_extraction_posting_fk
+        FOREIGN KEY (extraction_id, posting_id) REFERENCES extractions (id, posting_id)
 );
 CREATE INDEX sale_groups_posting_idx ON sale_groups (posting_id, extraction_id);
 -- The group's position is the stable half of its offer natural key
@@ -189,6 +197,7 @@ COMMENT ON COLUMN sale_groups.posting_id    IS 'Serves Q4: provenance of the gro
 COMMENT ON COLUMN sale_groups.extraction_id IS 'Serves Q4: which parse pass produced the group (replay safety).';
 COMMENT ON COLUMN sale_groups.position      IS 'Serves Q1 (offer-key stability): the group''s zero-based position within its extraction pass — the stable half of the offer natural key behind offer_key (sha256(posting natural key | ''|g'' || position)), so replays hash the same logical offer regardless of parser-version group ids.';
 COMMENT ON COLUMN sale_groups.label         IS 'Serves Q1, Q3: what the purchase shape is, as stated by the seller/parser.';
+COMMENT ON CONSTRAINT sale_groups_extraction_posting_fk ON sale_groups IS 'Prevents a sale group from pairing one posting with another posting''s extraction.';
 
 CREATE TABLE sale_group_terms (
     id            uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -343,6 +352,9 @@ CREATE UNIQUE INDEX price_observations_single_supersession
 CREATE TRIGGER price_observations_supersede_update
     BEFORE UPDATE ON price_observations
     FOR EACH ROW EXECUTE FUNCTION supersede_only();
+CREATE CONSTRAINT TRIGGER price_observations_supersede_series
+    AFTER UPDATE ON price_observations DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION supersede_series_guard();
 CREATE TRIGGER price_observations_reject_delete
     BEFORE DELETE ON price_observations
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();
@@ -435,13 +447,15 @@ COMMENT ON COLUMN availability_observations.created_at    IS 'Serves Q4: ingest 
 CREATE TABLE resolutions (
     id           uuid PRIMARY KEY DEFAULT uuidv7(),
     posting_id   uuid NOT NULL REFERENCES postings (id),
-    line_id      uuid REFERENCES lines (id),
+    line_id      uuid,
     product_key  text NOT NULL,
     product_name text NOT NULL,
     confidence   numeric NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
     method       text NOT NULL,
     superseded_by uuid REFERENCES resolutions (id),
-    created_at   timestamptz NOT NULL DEFAULT now()
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT resolutions_line_posting_fk
+        FOREIGN KEY (line_id, posting_id) REFERENCES lines (id, posting_id)
 );
 CREATE INDEX resolutions_line_idx    ON resolutions (line_id, created_at);
 CREATE INDEX resolutions_product_idx ON resolutions (product_key);
@@ -452,6 +466,9 @@ CREATE UNIQUE INDEX resolutions_single_supersession
 CREATE TRIGGER resolutions_supersede_update
     BEFORE UPDATE ON resolutions
     FOR EACH ROW EXECUTE FUNCTION supersede_only();
+CREATE CONSTRAINT TRIGGER resolutions_supersede_series
+    AFTER UPDATE ON resolutions DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION supersede_series_guard();
 CREATE TRIGGER resolutions_reject_delete
     BEFORE DELETE ON resolutions
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();
@@ -469,6 +486,7 @@ COMMENT ON COLUMN resolutions.confidence   IS 'Serves Q1, Q4: lets consumers wei
 COMMENT ON COLUMN resolutions.method       IS 'Serves Q4: which scorer/model produced the match (re-runnable, reproducible).';
 COMMENT ON COLUMN resolutions.superseded_by IS 'Serves Q4: a later pass supersedes — set once, only pointing at a strictly later row; nothing is rewritten or deleted.';
 COMMENT ON COLUMN resolutions.created_at   IS 'Serves Q4: ordering of resolution passes.';
+COMMENT ON CONSTRAINT resolutions_line_posting_fk ON resolutions IS 'A line-level resolution must carry that line''s posting provenance; NULL line_id denotes a posting-level resolution.';
 
 -- ----------------------------------------------------------- quarantine ---
 
@@ -519,6 +537,9 @@ CREATE INDEX categories_spec_gin ON categories USING gin (spec);
 CREATE TRIGGER categories_supersede_update
     BEFORE UPDATE ON categories
     FOR EACH ROW EXECUTE FUNCTION supersede_only();
+CREATE CONSTRAINT TRIGGER categories_supersede_series
+    AFTER UPDATE ON categories DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION supersede_series_guard();
 CREATE TRIGGER categories_reject_delete
     BEFORE DELETE ON categories
     FOR EACH ROW EXECUTE FUNCTION reject_mutation();

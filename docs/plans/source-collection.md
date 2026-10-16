@@ -20,24 +20,17 @@ path automatically. A source slice must name its adapter and show the resulting
 per-listing files reaching this engine, the scratch database, and query readback.
 Use the existing Shopify/Atom/GovDeals shape adapters where their inspected input
 contracts fit, but treat them as shape examples that require provenance review,
-not as approved capture wrappers. The current adapters map Shopify `updated_at`,
-Atom `<updated>`, and GovDeals `assetAuctionEndDateUTC` to `timestamp`; the engine
-uses `timestamp` as `fetched_at` and as the price/availability observation time.
-That misstates collection time. Before using any adapter, audit and correct its
-wrapper so `fetched_at` is the actual retrieval time and source update,
-publication, or auction-end dates remain separate source fields. When retrieval
-time is unavailable, leave it unknown and mark the capture incomplete; never
-substitute a source date, file modification time, or processing time for it.
-The current standalone extractor does not meet this requirement: its
-`iso_or_now` helper falls back to the capture file's modification time, and
-price/availability writes use that derived `fetched_at` as `observed_at`. Before
-any adapter is used for database readback, implementation must change this
-helper and the intake/write path to preserve an unknown fetch time and retain
-the raw incomplete evidence without publishing dated price or availability
-observations. Until that dependency is implemented, an incomplete capture
-cannot pass through the standalone extractor and be described as provenance
-honest. This is an implementation gate, not a claim that the current engine
-already supports it.
+not as approved capture wrappers. Adapters can retain source update, publication, and auction-end dates as source
+fields, but those dates do not establish retrieval time. The extractor now
+accepts only timezone-aware `capture_metadata.fetched_at`; it skips other
+artifacts with an explicit disposition and leaves the original files intact.
+It does not use source dates, file modification time, or processing time as a
+fallback. The staged normalized corpus currently supplies no eligible captures.
+
+Incomplete-evidence intake is still unfinished: leaving an artifact on disk is
+not the coherent, queryable evidence path required by the project goal. Decide
+that representation under issue #17 before claiming an end-to-end pilot. No
+invented fetch date may be used to obtain a passing database demonstration.
 An adapter's existence alone does not establish a correct capture or connection.
 Revisit this boundary when the application paths are reconciled; do not add a
 second intake implementation to make a pilot appear complete.

@@ -225,6 +225,8 @@ DECLARE
     v_line    uuid;
     v_old     uuid;
     v_new     uuid;
+    v_old_resolution uuid;
+    v_new_resolution uuid;
     v_observed_at timestamptz := now();
     v_caught  boolean;
 BEGIN
@@ -272,6 +274,17 @@ BEGIN
         UPDATE price_observations SET amount = 99 WHERE id = v_new;
     EXCEPTION WHEN OTHERS THEN v_caught := true; END;
     IF NOT v_caught THEN RAISE EXCEPTION 'smoke fail: non-pointer UPDATE on price_observations allowed'; END IF;
+
+    -- Product candidate and method may change, but a resolution must stay on
+    -- the same posting/line series.
+    INSERT INTO resolutions (posting_id, line_id, product_key, product_name, confidence, method)
+    VALUES (v_posting, v_line, 'smoke-old-product', 'Old candidate', 0.7, 'smoke-v1')
+    RETURNING id INTO v_old_resolution;
+    INSERT INTO resolutions (posting_id, line_id, product_key, product_name, confidence, method)
+    VALUES (v_posting, v_line, 'smoke-new-product', 'New candidate', 0.9, 'smoke-v2')
+    RETURNING id INTO v_new_resolution;
+    UPDATE resolutions SET superseded_by = v_new_resolution WHERE id = v_old_resolution;
+    SET CONSTRAINTS resolutions_supersede_series IMMEDIATE;
 END
 $smoke$;
 

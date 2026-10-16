@@ -76,8 +76,10 @@ def test_lot_repair_rejects_price_prefix_and_unrelated_phrase() -> None:
 
 
 def test_source_description_skips_empty_primary_and_supports_aliases() -> None:
-    assert extract.source_description({"description": "", "body_html": "seller lot text"}) == "seller lot text"
-    assert extract.source_description({"description": "  ", "body_text": "body alias"}) == "body alias"
+    payload = {"description": "", "body_html": "seller lot text"}
+    assert extract.source_description(payload) == "seller lot text"
+    payload = {"description": "  ", "body_text": "body alias"}
+    assert extract.source_description(payload) == "body alias"
     assert extract.source_description({"description": 42, "body": "body alias"}) == "body alias"
 
 

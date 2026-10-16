@@ -301,13 +301,10 @@ shapes 5 + 8's firstFound/lastSeen.
 
 ## 6. Acceptance contract (what workers optimize toward and how they stay on track)
 
-Authority note: the product North Star is `TechdealsHandoff/docs/NORTH_STAR.md`
-(owner-authored, living; that repo's AGENTS.md forbids inventing a second review
-contract). This section is subordinate to it — the v2 acceptance contract: the
-target the schema and ingestion work is scored against, nothing more.
-
-The single target that keeps schema and ingestion work from drifting. Every
-design choice is scored against it.
+Design basis: [the project goal](docs/project-goal.md) governs this experiment.
+The query set below and the production North Star are reference proposals to
+evaluate against original evidence and useful consumer answers. Neither an
+existing schema nor a production document establishes the correct design.
 
 ### The target query set
 

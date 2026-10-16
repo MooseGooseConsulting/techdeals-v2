@@ -89,7 +89,9 @@ class RawCapture(BaseModel):
         if self.url and status == "incomplete":
             raise ValueError("incomplete source URL metadata requires an empty url")
         if not self.url and status != "incomplete":
-            raise ValueError("url must be non-empty unless metadata marks source_url_status=incomplete")
+            raise ValueError(
+                "url must be non-empty unless metadata marks source_url_status=incomplete"
+            )
         if not self.url and status == "present":
             raise ValueError("present source URL metadata requires a non-empty url")
         return self

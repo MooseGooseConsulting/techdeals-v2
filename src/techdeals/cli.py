@@ -80,7 +80,10 @@ def main() -> None:
         if asyncio.run(_run_ingest()) != 0:
             sys.exit(1)
     elif command == "extract":
-        console.print("[red]Extraction is unavailable in the packaged CLI; no postings were processed.[/red]")
+        console.print(
+            "[red]Extraction is unavailable in the packaged CLI; "
+            "no postings were processed.[/red]"
+        )
         sys.exit(2)
     elif command == "query":
         if len(sys.argv) < 3:

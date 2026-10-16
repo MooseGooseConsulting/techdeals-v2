@@ -156,7 +156,9 @@ def test_price_contract_rejects_wrong_types_missing_fields_and_unknown_kind() ->
         extract.validate_result(bad)
 
 
-@pytest.mark.parametrize("quantity", [float("nan"), float("inf"), float("-inf"), json.loads("1e999")])
+@pytest.mark.parametrize(
+    "quantity", [float("nan"), float("inf"), float("-inf"), json.loads("1e999")]
+)
 def test_price_contract_rejects_nonfinite_quantity_units(quantity: float) -> None:
     result = {
         "id": "nonfinite", "outcome": "extracted", "sale_groups": [{
