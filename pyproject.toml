@@ -48,6 +48,6 @@ select = ["E", "F", "I", "W"]
 [tool.uv]
 # Fleet release-age soak (MooseGooseConsulting/renovate-config ADR 0001): resolve only
 # files uploaded at least 4 days ago, in Renovate lock updates and in a local `uv lock`.
-# Needs uv 0.9.17 or later. For a security fix younger than 4 days, add
-# `exclude-newer-package = { <name> = false }` until that release is 4 days old.
+# Needs uv 0.9.17 or later (0.9.25 for the exemption). For a security fix younger
+# than 4 days, add `exclude-newer-package = { <name> = false }` until it is 4 days old.
 exclude-newer = "4 days"
