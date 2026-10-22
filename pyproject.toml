@@ -44,3 +44,8 @@ select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/techdeals/parser/prompts.py" = ["E501"]
+
+[tool.uv]
+# Fleet release-age soak (MooseGooseConsulting/renovate-config ADR 0001): resolve only
+# releases at least 4 days old, in Renovate lock updates and in a local `uv lock`.
+exclude-newer = "4 days"
