@@ -44,3 +44,12 @@ select = ["E", "F", "I", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/techdeals/parser/prompts.py" = ["E501"]
+
+[tool.uv]
+# Fleet release-age soak (MooseGooseConsulting/renovate-config ADR 0001): resolve only
+# files uploaded at least 4 days ago, in Renovate lock updates and in a local `uv lock`.
+# Needs uv 0.9.17 or later. For a security fix younger than 4 days, add
+# `exclude-newer-package = { <name> = "<RFC 3339 time just after the fix's last file>" }`
+# and run `uv lock --upgrade-package <name>`. Once that last file is 4 days old, remove
+# the entry and run `uv lock`; removing it earlier downgrades the package again.
+exclude-newer = "4 days"
